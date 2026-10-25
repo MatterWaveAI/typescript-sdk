@@ -78,7 +78,7 @@ describe.skipIf(!BASE)("native clients against a local API", () => {
     await expect(client.usage.exportCsv()).rejects.toBeInstanceOf(PermissionDeniedError);
     await expect(client.webhooks.list()).rejects.toBeInstanceOf(PermissionDeniedError);
     await expect(
-      client.webhooks.create({ url: "https://example.com/hook", events: ["message.completed"] }),
+      client.webhooks.create({ url: "https://app.matterwave.ai/hook", events: ["message.completed"] }),
     ).rejects.toBeInstanceOf(PermissionDeniedError);
   });
 
