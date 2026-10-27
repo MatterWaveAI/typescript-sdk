@@ -26,6 +26,19 @@ export const APP_OPERATIONS = {
   "conversations.fork": ["POST", "/api/conversations/{conversation_id}/fork"],
   "conversations.context": ["GET", "/api/conversations/{conversation_id}/context"],
   "conversations.compact": ["POST", "/api/conversations/{conversation_id}/compact"],
+  "conversations.delete": ["DELETE", "/api/conversations/{conversation_id}"],
+  "conversations.pin": ["PUT", "/api/conversations/{conversation_id}/pin"],
+  "conversations.unpin": ["DELETE", "/api/conversations/{conversation_id}/pin"],
+  "conversations.archive": ["PUT", "/api/conversations/{conversation_id}/archive"],
+  "conversations.unarchive": ["DELETE", "/api/conversations/{conversation_id}/archive"],
+  "conversations.updateInstructions": ["PUT", "/api/conversations/{conversation_id}/instructions"],
+  "instructions.user": ["GET", "/api/me/instructions"],
+  "instructions.updateUser": ["PUT", "/api/me/instructions"],
+  "instructions.org": ["GET", "/api/org/instructions"],
+  "instructions.updateOrg": ["PUT", "/api/org/instructions"],
+  "messages.setFeedback": ["PUT", "/api/messages/{message_id}/feedback"],
+  "messages.deleteFeedback": ["DELETE", "/api/messages/{message_id}/feedback"],
+  "appModels": ["GET", "/api/models"],
   "auth.device.start": ["POST", "/api/auth/device"],
   "auth.device.poll": ["POST", "/api/auth/device/token"],
   "keys.list": ["GET", "/api/keys"],
@@ -64,8 +77,12 @@ export const APP_OPERATIONS = {
   "shares.listMine": ["GET", "/api/me/shares"],
   "shares.revoke": ["DELETE", "/api/shares/{share_id}"],
   "shares.view": ["GET", "/api/share/{token}"],
+  "budget.get": ["GET", "/api/budget"],
+  "budget.setOverageCap": ["PUT", "/api/budget"],
+  "budget.members": ["GET", "/api/budget/members"],
+  "budget.setMemberDefaultCap": ["PUT", "/api/budget/members"],
+  "budget.setMemberCap": ["PUT", "/api/budget/members/{subject}"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
-
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {
   type: string;
@@ -253,4 +270,94 @@ export interface DeviceToken {
 export function summaryOf(message: ConversationMessage): SummaryPart | null {
   const part = message.parts?.find((p) => p.type === "summary");
   return (part as SummaryPart | undefined) ?? null;
+}
+
+// --- what 0.2 added: lifecycle answers, instructions, feedback, the picker -----
+
+/** The answer to `conversations.delete`. The row is purged after a 30-day delay; `attachments_deleted` counts the uploads it took with it, absent when there were none. */
+export interface DeletedConversation {
+  status: string;
+  attachments_deleted?: number | null;
+}
+
+/** What the assistant should know about the person, and how they want answers shaped. `updateUser` replaces the pair, so a field left out is sent as empty. */
+export interface UserInstructions {
+  about: string;
+  style: string;
+}
+
+/** The org's policy text, set by an owner or admin and prefixed to every member's turns. Reading it is admin-only as well as writing it. */
+export interface OrgInstructions {
+  text: string;
+}
+
+/**
+ * The answer to `conversations.updateInstructions`: the conversation's id
+ * and the levels now in force for it (`org`, `user`, `conversation`,
+ * `user_overridden`, `effective`), as `get` reports them.
+ */
+export interface ConversationInstructions {
+  conversation_id: string;
+  instructions: Record<string, unknown>;
+}
+
+/** A thumbs up (`1`) or down (`-1`). */
+export type FeedbackRating = 1 | -1;
+
+/** The fixed vocabulary a rating's `reasons` may draw on; the free text is `comment`. The server refuses the rest. */
+export const FEEDBACK_REASONS = [
+  "wrong",
+  "unhelpful",
+  "incomplete",
+  "too_long",
+  "off_topic",
+  "unsafe",
+] as const;
+
+export type FeedbackReason = (typeof FEEDBACK_REASONS)[number];
+
+export interface SetFeedbackParams {
+  rating: FeedbackRating;
+  reasons?: FeedbackReason[];
+  /** Enough to say what was wrong, not an essay: the server caps it. */
+  comment?: string | null;
+}
+
+/** The caller's current opinion of one reply; a second rating replaces the first rather than piling up. */
+export interface MessageFeedback {
+  message_id: string;
+  rating: number;
+  reasons: string[];
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The answer to `deleteFeedback`: `removed`, or `none` when there was already nothing there. */
+export interface RemovedFeedback {
+  status: string;
+}
+
+/** One row of the model picker: the model, what it costs, and the caller's plan's relationship to it. `supports_vision` is the one field the gateway may leave out. */
+export interface AppModel {
+  id: string;
+  label: string;
+  /** False for a model the plan does not cover: it stays listed, with `upgrade_to` naming the plan that has it, and a turn on it is refused server-side. */
+  included: boolean;
+  upgrade_to: string | null;
+  partner: boolean;
+  research_preview: boolean;
+  supports_vision?: boolean | null;
+  /** Null when the gateway did not say, rather than a guess. */
+  context_window: number | null;
+  multiplier: number;
+  input_usd_per_m: number;
+  output_usd_per_m: number;
+}
+
+/** `GET /api/models`: the picker's rows, narrowed to what the caller's org switched on, with `default_model` to preselect. */
+export interface AppModelList {
+  object: string;
+  data: AppModel[];
+  default_model: string | null;
 }

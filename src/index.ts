@@ -30,16 +30,17 @@ export {
   setSleep,
 } from "./client.js";
 export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
-export { Auth, Conversations, ConversationStream, DeviceAuth, RESUME_PLACEHOLDER } from "./conversations.js";
+export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
-export { APP_OPERATIONS, summaryOf } from "./conversation-types.js";
-export { Attachments, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
+export { APP_OPERATIONS, FEEDBACK_REASONS, summaryOf } from "./conversation-types.js";
+export { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
   ApiKey,
   ApiKeyList,
   ApiKeyWithSecret,
   Attachment,
   AttachmentLimits,
+  Budget,
   ConversationTags,
   CreateKeyParams,
   CreateShareParams,
@@ -51,9 +52,14 @@ export type {
   KeySettings,
   Library,
   LibrarySearchParams,
+  MemberBudget,
+  MemberBudgetList,
   MemberUsage,
   ModelUsage,
   OrgUsage,
+  SetMemberCapParams,
+  SetMemberDefaultCapParams,
+  SetOverageCapParams,
   Share,
   ShareList,
   SharedConversation,
@@ -71,24 +77,35 @@ export type {
   WebhookEndpointWithSecret,
 } from "./native-types.js";
 export type {
+  AppModel,
+  AppModelList,
   Conversation,
   ConversationContext,
   ConversationFilter,
+  ConversationInstructions,
   ConversationList,
   ConversationMessage,
   ConversationWithMessages,
   CreateConversationParams,
+  DeletedConversation,
   DeviceCode,
   DeviceToken,
   EditMessageParams,
+  FeedbackReason,
+  FeedbackRating,
   Me,
+  MessageFeedback,
   MessagePart,
+  OrgInstructions,
   RegenerateMessageParams,
+  RemovedFeedback,
   SearchHit,
   SearchResults,
   SendMessageParams,
+  SetFeedbackParams,
   SummaryPart,
   UpdateConversationParams,
+  UserInstructions,
 } from "./conversation-types.js";
 export { CONVERSATION_EVENTS, frameFromEvent, isTerminal } from "./frames.js";
 export type {

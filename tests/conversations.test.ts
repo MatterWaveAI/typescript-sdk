@@ -394,6 +394,66 @@ describe("the JSON routes", () => {
     expect(() => c.conversations.setActiveLeaf(CONV, "")).toThrow(MatterWaveConfigError);
   });
 
+  it("delete sends DELETE and reads the status", async () => {
+    const { fetch, seen } = stubFetch([
+      json({ status: "deleted", attachments_deleted: 2 }),
+      json({ status: "deleted" }),
+    ]);
+    const deleted = await client(fetch).conversations.delete(CONV);
+    expect(seen[0]!.method).toBe("DELETE");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/conversations/${CONV}`);
+    expect(deleted.status).toBe("deleted");
+    expect(deleted.attachments_deleted).toBe(2);
+    expect(deleted.requestId).toBe(REQUEST_ID);
+    // A conversation without attachments keeps the plain shape: no count at all.
+    const plain = await client(fetch).conversations.delete(CONV);
+    expect(plain.attachments_deleted).toBeUndefined();
+  });
+
+  it("pin, unpin, archive and unarchive toggle by method", async () => {
+    const { fetch, seen } = stubFetch([
+      json(conversation({ pinned_at: "2026-10-18T10:00:00+00:00" })),
+      json(conversation()),
+      json(conversation({ archived_at: "2026-10-18T10:00:00+00:00" })),
+      json(conversation()),
+    ]);
+    const pinned = await client(fetch).conversations.pin(CONV);
+    expect(pinned.pinned_at).not.toBeNull();
+    expect(await client(fetch).conversations.unpin(CONV)).toMatchObject({ pinned_at: null });
+    expect(await client(fetch).conversations.archive(CONV)).toMatchObject({
+      archived_at: "2026-10-18T10:00:00+00:00",
+    });
+    expect(await client(fetch).conversations.unarchive(CONV)).toMatchObject({ archived_at: null });
+    expect(seen.map((s) => [s.method, s.url.replace(BASE_URL, "")])).toEqual([
+      ["PUT", `/api/conversations/${CONV}/pin`],
+      ["DELETE", `/api/conversations/${CONV}/pin`],
+      ["PUT", `/api/conversations/${CONV}/archive`],
+      ["DELETE", `/api/conversations/${CONV}/archive`],
+    ]);
+    // A toggle carries no body: the method is the whole instruction.
+    expect(seen.every((s) => s.raw === undefined)).toBe(true);
+  });
+
+  it("updateInstructions sends the text, and null clears it", async () => {
+    const { fetch, seen } = stubFetch([
+      json({
+        conversation_id: CONV,
+        instructions: { org: "Be brief.", user: { about: "", style: "" }, conversation: "Answer in French.", user_overridden: true, effective: "Be brief." },
+      }),
+      json({ conversation_id: CONV, instructions: { org: "", user: { about: "", style: "" }, conversation: "", user_overridden: false, effective: "" } }),
+    ]);
+    const set = await client(fetch).conversations.updateInstructions(CONV, { text: "Answer in French." });
+    expect(set.conversation_id).toBe(CONV);
+    expect(set.instructions.user_overridden).toBe(true);
+    expect(seen[0]!.method).toBe("PUT");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/conversations/${CONV}/instructions`);
+    expect(seen[0]!.body).toEqual({ text: "Answer in French." });
+    // The field always goes, null included: the server reads it as "clear".
+    const cleared = await client(fetch).conversations.updateInstructions(CONV, {});
+    expect(cleared.instructions.effective).toBe("");
+    expect(seen[1]!.body).toEqual({ text: null });
+  });
+
   it("every app operation is a client method", () => {
     const c = new MatterWave({ apiKey: "k", baseUrl: BASE_URL });
     for (const dotted of Object.keys(APP_OPERATIONS)) {

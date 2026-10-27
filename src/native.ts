@@ -1,17 +1,18 @@
 /**
  * The native API clients: `keys`, `usage`, `webhooks`, `attachments`,
- * `library` and `shares`, one method per route on top of the client's
- * request and retry loop.
+ * `library`, `shares` and `budget`, one method per route on top of the
+ * client's request and retry loop.
  *
  *     const key = await client.keys.create({ name: "ci", expires_in_days: 90 });
  *     const csv = await client.usage.exportCsv({ period: "2026-10" });
  *
  * These are the routes the web app's settings panes use, open to an API key
  * as its owner. Managing keys needs a key with `keys:manage` (or a
- * session), webhooks a key with `webhooks:manage`, and the org usage report
- * (`usage.org`, `usage.exportCsv`) a key with `usage:read`. The scope never
- * widens the owner's role: webhooks still need the owner to be an org owner
- * or admin, and a member's `usage:read` key sees only their own row.
+ * session), webhooks a key with `webhooks:manage`, the org usage report
+ * (`usage.org`, `usage.exportCsv`) a key with `usage:read`, and moving a
+ * budget cap an owner or admin. The scope never widens the owner's role:
+ * webhooks still need the owner to be an org owner or admin, and a member's
+ * `usage:read` key sees only their own row.
  */
 
 import { MatterWaveConfigError } from "./client.js";
@@ -24,6 +25,7 @@ import type {
   ApiKeyWithSecret,
   Attachment,
   AttachmentLimits,
+  Budget,
   ConversationTags,
   CreateKeyParams,
   CreateShareParams,
@@ -33,7 +35,12 @@ import type {
   Folder,
   Library,
   LibrarySearchParams,
+  MemberBudget,
+  MemberBudgetList,
   OrgUsage,
+  SetMemberCapParams,
+  SetMemberDefaultCapParams,
+  SetOverageCapParams,
   ShareList,
   SharedConversation,
   Tag,
@@ -340,6 +347,53 @@ export class LibraryClient extends Resource {
   /** Replace the conversation's tags with exactly these. */
   setTags(conversationId: string, tagIds: string[], options: RequestOptions = {}): Promise<WithRequestId<ConversationTags>> {
     return this.call("PUT", libraryConversationPath(conversationId, "/tags"), { tag_ids: tagIds }, options);
+  }
+}
+
+// --- budget --------------------------------------------------------------------
+
+/** A spend cap in micro-dollars at list price. A negative number is refused here rather than spent on a 422. */
+function checkCap(name: string, micros: number | null): void {
+  if (micros !== null && micros < 0) {
+    throw new MatterWaveConfigError(`${name} must be 0 or more, got ${micros}`);
+  }
+}
+
+/** `/api/budget`: the org's allowance, what it has spent past it, and the caps that stop it. Every member may read the balance; moving a cap is an owner or admin, and audited. */
+export class BudgetClient extends Resource {
+  /** `GET /api/budget`: the period, the overage and the caps, with the caller's own `member_cap` and `member_spent` beside the org's. */
+  get(options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
+    return this.call("GET", "/api/budget", undefined, options);
+  }
+
+  /** `PUT /api/budget`: the most overage a period may run up, in micro-dollars at list price. 0 restores the plan's default. Owner or admin only. */
+  setOverageCap(params: SetOverageCapParams, options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
+    checkCap("overage_cap_micros", params.overage_cap_micros);
+    return this.call("PUT", "/api/budget", params, options);
+  }
+
+  /** `GET /api/budget/members`: every member's cap in force and spend this month. Owner or admin only. */
+  members(options: RequestOptions = {}): Promise<WithRequestId<MemberBudgetList>> {
+    return this.call("GET", "/api/budget/members", undefined, options);
+  }
+
+  /** `PUT /api/budget/members`: the cap every member without one of their own is held to; `null` lifts it. Owner or admin only. */
+  setMemberDefaultCap(
+    params: SetMemberDefaultCapParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<MemberBudgetList>> {
+    checkCap("member_default_cap_micros", params.member_default_cap_micros);
+    return this.call("PUT", "/api/budget/members", params, options);
+  }
+
+  /** `PUT /api/budget/members/{subject}`: one member's own cap; `null` removes it so the default applies. Owner or admin only, and only for a current member. */
+  setMemberCap(
+    subject: string,
+    params: SetMemberCapParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<MemberBudget>> {
+    checkCap("cap_micros", params.cap_micros);
+    return this.call("PUT", `/api/budget/members/${segment("subject", subject)}`, params, options);
   }
 }
 

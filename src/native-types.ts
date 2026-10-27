@@ -146,6 +146,69 @@ export interface UsagePeriodParams {
   period?: string;
 }
 
+// --- budget ------------------------------------------------------------------
+
+/**
+ * `GET /api/budget`: the org's period as of now. `included_tokens` and
+ * `tokens_used` are weighted tokens; the money fields are micro-dollars at
+ * list price, `overage_cap_micros` the org's own cap or the plan's default.
+ * The `member_*` fields are the caller's own cap and spend against it.
+ */
+export interface Budget {
+  period_start: string;
+  included_tokens: number;
+  tokens_used: number;
+  remaining_tokens: number;
+  overage_enabled: boolean;
+  overage_cap_micros: number;
+  overage_micros: number;
+  member_default_cap_micros: number | null;
+  member_cap: number | null;
+  member_spent: number | null;
+  member_exhausted: boolean | null;
+}
+
+/**
+ * One member's month: the cap in force (`own` says it is the member's row
+ * rather than the org's default; null is unlimited) and the spend the usage
+ * report shows beside them. `email`, `name`, `role` and `state` are filled
+ * in only where the route answers rows for the whole org.
+ */
+export interface MemberBudget {
+  subject: string;
+  period_start: string;
+  cap_micros: number | null;
+  own: boolean;
+  spent_micros: number;
+  exhausted: boolean;
+  email?: string | null;
+  name?: string | null;
+  role?: string | null;
+  state?: string | null;
+}
+
+/** `GET /api/budget/members`, and the answer to `setMemberDefaultCap`: every member with the cap in force and the month's spend beside them. */
+export interface MemberBudgetList {
+  period_start: string;
+  member_default_cap_micros: number | null;
+  data: MemberBudget[];
+}
+
+/** The most overage a period may run up, in micro-dollars; 0 restores the plan's default (its monthly price). */
+export interface SetOverageCapParams {
+  overage_cap_micros: number;
+}
+
+/** The cap every member without one of their own is held to; `null` lifts it. */
+export interface SetMemberDefaultCapParams {
+  member_default_cap_micros: number | null;
+}
+
+/** One member's own cap, which beats the org's default up or down; `null` removes it so the default applies. */
+export interface SetMemberCapParams {
+  cap_micros: number | null;
+}
+
 // --- webhooks ----------------------------------------------------------------
 
 export interface WebhookEndpoint {

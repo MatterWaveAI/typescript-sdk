@@ -17,19 +17,28 @@ import type {
   Conversation,
   ConversationContext,
   ConversationFilter,
+  ConversationInstructions,
   ConversationList,
   ListConversationsParams,
   ConversationMessage,
   ConversationWithMessages,
   CreateConversationParams,
+  DeletedConversation,
   DeviceCode,
   DeviceToken,
   EditMessageParams,
+  FeedbackRating,
+  FeedbackReason,
+  MessageFeedback,
+  OrgInstructions,
   RegenerateMessageParams,
+  RemovedFeedback,
   SearchResults,
   SendMessageParams,
   UpdateConversationParams,
+  UserInstructions,
 } from "./conversation-types.js";
+import { FEEDBACK_REASONS } from "./conversation-types.js";
 import { APIConnectionError, APIError, APITimeoutError, DeviceAuthError, MatterWaveError } from "./errors.js";
 import { frameFromEvent, isTerminal, type ConversationFrame } from "./frames.js";
 import { sseEvents, type SSEEvent } from "./sse.js";
@@ -316,6 +325,50 @@ export class Conversations {
     return this.call("POST", conversationPath(conversationId, "/compact"), {}, options);
   }
 
+  /** `DELETE /api/conversations/{id}`: gone from every list, its attachments marked for the sweeper. The row itself is purged after the platform's 30-day delay. */
+  delete(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<DeletedConversation>> {
+    return this.call("DELETE", conversationPath(conversationId), undefined, options);
+  }
+
+  /** `PUT /api/conversations/{id}/pin`: to the top of the sidebar, first in the `pinned` filter. `ConflictError` for a temporary conversation, which cannot be kept. */
+  pin(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
+    return this.call("PUT", conversationPath(conversationId, "/pin"), undefined, options);
+  }
+
+  /** `DELETE /api/conversations/{id}/pin`. */
+  unpin(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
+    return this.call("DELETE", conversationPath(conversationId, "/pin"), undefined, options);
+  }
+
+  /** `PUT /api/conversations/{id}/archive`: out of the default list, still readable and searchable, under `filter: "archived"`. */
+  archive(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
+    return this.call("PUT", conversationPath(conversationId, "/archive"), undefined, options);
+  }
+
+  /** `DELETE /api/conversations/{id}/archive`: back to the default list. */
+  unarchive(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
+    return this.call("DELETE", conversationPath(conversationId, "/archive"), undefined, options);
+  }
+
+  /**
+   * `PUT /api/conversations/{id}/instructions`: this thread's own prompt,
+   * which replaces the user's instructions for it (the org's still apply).
+   * `null`, or an empty string, clears it. The answer carries the levels in
+   * force, as `get` reports them.
+   */
+  updateInstructions(
+    conversationId: string,
+    params: { text?: string | null },
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<ConversationInstructions>> {
+    return this.call(
+      "PUT",
+      conversationPath(conversationId, "/instructions"),
+      { text: params.text ?? null },
+      options,
+    );
+  }
+
   private async stream(prepared: Prepared, conversationId: string, options: RequestOptions): Promise<ConversationStream> {
     const { response, controller } = await this.client.send(prepared, options);
     return new ConversationStream(this.client, prepared, conversationId, response, controller, options);
@@ -476,5 +529,117 @@ export class Auth {
   readonly device: DeviceAuth;
   constructor(client: MatterWave) {
     this.device = new DeviceAuth(client);
+  }
+}
+
+/**
+ * Custom instructions, the three levels the platform keeps. The org level
+ * is additive policy every member is subject to; the conversation level
+ * replaces the user's for that thread (`conversations.updateInstructions`).
+ * Reads of the org level are admin-only, as are writes.
+ */
+export class Instructions {
+  constructor(private readonly client: MatterWave) {}
+
+  private call<T extends object>(
+    method: Prepared["method"],
+    path: string,
+    body: unknown,
+    options: RequestOptions,
+  ): Promise<WithRequestId<T>> {
+    return this.client.json<T>({ method, path, body, keyed: true, stream: false }, options);
+  }
+
+  /** `GET /api/me/instructions`: what the caller saved about themselves. Reading is not gated, so a downgraded plan can still see and clear what it saved. */
+  user(options: RequestOptions = {}): Promise<WithRequestId<UserInstructions>> {
+    return this.call("GET", "/api/me/instructions", undefined, options);
+  }
+
+  /**
+   * `PUT /api/me/instructions`: save both fields. The route replaces the
+   * pair, so a field left out is sent as empty -- there is no "leave it
+   * alone".
+   */
+  updateUser(
+    params: { about?: string; style?: string } = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<UserInstructions>> {
+    return this.call(
+      "PUT",
+      "/api/me/instructions",
+      { about: params.about ?? "", style: params.style ?? "" },
+      options,
+    );
+  }
+
+  /** `GET /api/org/instructions`: the org's policy text. `PermissionDeniedError` for anyone but an owner or admin. */
+  org(options: RequestOptions = {}): Promise<WithRequestId<OrgInstructions>> {
+    return this.call("GET", "/api/org/instructions", undefined, options);
+  }
+
+  /** `PUT /api/org/instructions`: set (or with an empty string, clear) the policy every member's turns are prefixed with. Owner or admin only. */
+  updateOrg(
+    params: { text: string },
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<OrgInstructions>> {
+    return this.call("PUT", "/api/org/instructions", { text: params.text }, options);
+  }
+}
+
+/** The caller's own ratings of replies. One rating per person per message: a second `setFeedback` replaces the first rather than piling up, which is why setting is a PUT. */
+export class Messages {
+  constructor(private readonly client: MatterWave) {}
+
+  private call<T extends object>(
+    method: Prepared["method"],
+    path: string,
+    body: unknown,
+    options: RequestOptions,
+  ): Promise<WithRequestId<T>> {
+    return this.client.json<T>({ method, path, body, keyed: true, stream: false }, options);
+  }
+
+  /**
+   * `PUT /api/messages/{id}/feedback`: rate a reply, up (`1`) or down
+   * (`-1`), with `reasons` from `FEEDBACK_REASONS` and a free-text
+   * `comment`. Only an assistant message of the caller's own may be rated;
+   * anything else is a 404 or a 422.
+   */
+  setFeedback(
+    messageId: string,
+    rating: FeedbackRating,
+    params: { reasons?: FeedbackReason[]; comment?: string | null } = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<MessageFeedback>> {
+    segment("messageId", messageId);
+    if (rating !== 1 && rating !== -1) {
+      throw new MatterWaveConfigError(`rating must be 1 or -1, got ${rating}`);
+    }
+    for (const reason of params.reasons ?? []) {
+      if (!(FEEDBACK_REASONS as readonly string[]).includes(reason)) {
+        throw new MatterWaveConfigError(
+          `reasons must be from ${FEEDBACK_REASONS.join(", ")}, got ${reason}`,
+        );
+      }
+    }
+    return this.call(
+      "PUT",
+      `/api/messages/${segment("messageId", messageId)}/feedback`,
+      { rating, reasons: params.reasons ?? [], comment: params.comment ?? null },
+      options,
+    );
+  }
+
+  /** `DELETE /api/messages/{id}/feedback`: withdraw a rating. Idempotent -- `none` when there was already nothing to remove. */
+  deleteFeedback(
+    messageId: string,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<RemovedFeedback>> {
+    return this.call(
+      "DELETE",
+      `/api/messages/${segment("messageId", messageId)}/feedback`,
+      undefined,
+      options,
+    );
   }
 }

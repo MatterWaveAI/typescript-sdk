@@ -27,8 +27,8 @@ import {
   errorClassFor,
 } from "./errors.js";
 import type { RateLimit } from "./errors.js";
-import { Auth, Conversations } from "./conversations.js";
-import { Attachments, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
+import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
+import { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import type {
   ApiIndex,
@@ -44,8 +44,9 @@ import type {
   WithRequestId,
 } from "./types.js";
 import type { Me } from "./conversation-types.js";
+import type { AppModelList } from "./conversation-types.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
 export const BASE_URL_ENV = "MATTERWAVE_BASE_URL";
 const API_PREFIX = "/v1";
@@ -426,6 +427,10 @@ export class MatterWave {
   readonly embeddings: Embeddings;
   /** The app's conversations, as the key's owner sees them in the web app. */
   readonly conversations: Conversations;
+  /** The caller's own ratings of replies. */
+  readonly messages: Messages;
+  /** Custom instructions: the user's, the org's, and how they combine. */
+  readonly instructions: Instructions;
   /** Device login: a key for a person, approved in their browser. */
   readonly auth: Auth;
   /** The org's API keys: create, edit, rotate, revoke. */
@@ -440,6 +445,8 @@ export class MatterWave {
   readonly library: LibraryClient;
   /** Read-only links to a snapshot of a conversation. */
   readonly shares: Shares;
+  /** The org's allowance, its overage, and the caps that stop it. */
+  readonly budget: BudgetClient;
   private readonly apiKey: string | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
@@ -460,6 +467,8 @@ export class MatterWave {
     this.models = new Models(this);
     this.embeddings = new Embeddings(this);
     this.conversations = new Conversations(this);
+    this.messages = new Messages(this);
+    this.instructions = new Instructions(this);
     this.auth = new Auth(this);
     this.keys = new Keys(this);
     this.usage = new UsageClient(this);
@@ -467,6 +476,7 @@ export class MatterWave {
     this.attachments = new Attachments(this);
     this.library = new LibraryClient(this);
     this.shares = new Shares(this);
+    this.budget = new BudgetClient(this);
   }
 
   /** `GET /v1`: the version, the endpoints and the stability promise. No key needed. */
@@ -481,6 +491,20 @@ export class MatterWave {
   me(options: RequestOptions = {}): Promise<WithRequestId<Me>> {
     return this.json<Me>(
       { method: "GET", path: "/api/me", body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /**
+   * `GET /api/models`: the model picker's rows -- each model priced, with
+   * `included` saying whether the caller's plan covers it and `upgrade_to`
+   * the plan that does, so a client can show the upgrade path instead of
+   * hiding the model. `models.list()` is `/v1/models`, which carries none
+   * of that.
+   */
+  appModels(options: RequestOptions = {}): Promise<WithRequestId<AppModelList>> {
+    return this.json<AppModelList>(
+      { method: "GET", path: "/api/models", body: undefined, keyed: true, stream: false },
       options,
     );
   }
