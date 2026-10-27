@@ -6,9 +6,15 @@
  * it with the same method and path, and every operation in it must be
  * exposed here; the request fields are held to the request schemas the same
  * way. Neither side can grow without the other noticing.
+ *
+ * The document is read from the platform checkout when this repo sits
+ * inside it; a standalone checkout reads the snapshot in tests/openapi.json,
+ * copied from the export. The /api routes are not in the export (it is the
+ * `/v1` contract), so they are held to the API by the mocked-transport
+ * tests instead.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -24,7 +30,8 @@ import {
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const OPENAPI = resolve(here, "../../../docs/developers/openapi.json");
+const MONOREPO = resolve(here, "../../../docs/developers/openapi.json");
+const OPENAPI = existsSync(MONOREPO) ? MONOREPO : resolve(here, "openapi.json");
 
 const CONVERSATION_STREAM = APP_OPERATIONS["conversations.send"]![1];
 // A `part_start`'s `id` is the tool call's, and the frame carries the SSE
