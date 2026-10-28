@@ -11,7 +11,8 @@
  * frames; `client.auth.device` signs a person in by device code and returns
  * the key to use. `client.keys`, `client.usage`, `client.webhooks`,
  * `client.attachments`, `client.library` and `client.shares` are the app's
- * native routes for the same.
+ * native routes for the same, and `client.mcp` speaks the `/mcp` JSON-RPC
+ * endpoint (list tools, call one, send a message).
  */
 
 export {
@@ -32,7 +33,9 @@ export {
 export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
-export { APP_OPERATIONS, FEEDBACK_REASONS, summaryOf } from "./conversation-types.js";
+export { APP_OPERATIONS, FEEDBACK_REASONS, summaryOf, visionOf } from "./conversation-types.js";
+export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
+export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
 export { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
   ApiKey,
@@ -95,6 +98,7 @@ export type {
   FeedbackRating,
   Me,
   MessageFeedback,
+  MessageFeedbackList,
   MessagePart,
   OrgInstructions,
   RegenerateMessageParams,
@@ -106,6 +110,7 @@ export type {
   SummaryPart,
   UpdateConversationParams,
   UserInstructions,
+  VisionVerdict,
 } from "./conversation-types.js";
 export { CONVERSATION_EVENTS, frameFromEvent, isTerminal } from "./frames.js";
 export type {
@@ -134,6 +139,8 @@ export {
   ConflictError,
   DeviceAuthError,
   MatterWaveError,
+  McpError,
+  McpToolError,
   MissingAPIKeyError,
   NotFoundError,
   PermissionDeniedError,

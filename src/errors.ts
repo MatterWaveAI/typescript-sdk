@@ -118,6 +118,74 @@ export class ServerError extends APIError {}
  */
 export class DeviceAuthError extends APIError {}
 
+/**
+ * A JSON-RPC error the `/mcp` endpoint answered with.
+ *
+ * `code` is the JSON-RPC code: -32601 for a method the server does not
+ * have, -32022 for a protocol version it does not serve (the ones it does
+ * ride in `data.supported`), -32020 for a mirrored header that disagrees
+ * with the body. A refusal that happens before any method runs -- no key,
+ * a revoked one, the key's rate limit -- is not here: it travels with its
+ * HTTP status and is thrown as the ordinary `APIError` family
+ * (`RateLimitError` and friends).
+ */
+export class McpError extends MatterWaveError {
+  readonly code: number | null;
+  readonly data: unknown;
+
+  constructor(message: string, options?: { code?: number | null; data?: unknown }) {
+    super(message);
+    this.code = options?.code ?? null;
+    this.data = options?.data;
+  }
+
+  /** The message with the JSON-RPC code, for a log line. */
+  describe(): string {
+    return this.code === null ? this.message : `${this.message} [${this.code}]`;
+  }
+}
+
+/**
+ * A tool that ran and refused, in the protocol's own shape: the result
+ * carried `isError: true` and a `structuredContent.error`, so the call
+ * succeeded and the answer is "no" -- the model's plan, not the transport,
+ * is what failed.
+ *
+ * `errorCode` is the machine-readable reason (`budget`, `not_found`,
+ * `upgrade_required`, `moderation`, ...), `detail` the prose, `status` the
+ * HTTP status of the underlying refusal where there was one, `requestId`
+ * the server's id for finding the call in its logs, and `error` the whole
+ * structured error as sent.
+ */
+export class McpToolError extends McpError {
+  readonly tool: string;
+  readonly errorCode: string;
+  readonly detail: string;
+  readonly requestId: string | null;
+  readonly status: number | null;
+  readonly error: Record<string, unknown> | null;
+
+  constructor(
+    message: string,
+    options: {
+      tool: string;
+      errorCode: string;
+      detail: string;
+      requestId?: string | null;
+      status?: number | null;
+      error?: Record<string, unknown> | null;
+    },
+  ) {
+    super(message);
+    this.tool = options.tool;
+    this.errorCode = options.errorCode;
+    this.detail = options.detail;
+    this.requestId = options.requestId ?? null;
+    this.status = options.status ?? null;
+    this.error = options.error ?? null;
+  }
+}
+
 export function errorClassFor(status: number): new (message: string, init: APIErrorInit) => APIError {
   if (status === 400) return BadRequestError;
   if (status === 401) return AuthenticationError;

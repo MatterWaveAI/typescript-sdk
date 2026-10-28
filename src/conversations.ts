@@ -30,6 +30,7 @@ import type {
   FeedbackRating,
   FeedbackReason,
   MessageFeedback,
+  MessageFeedbackList,
   OrgInstructions,
   RegenerateMessageParams,
   RemovedFeedback,
@@ -250,7 +251,14 @@ export class Conversations {
     return this.call("GET", `/api/conversations/search${query({ q, limit: params.limit })}`, undefined, options);
   }
 
-  /** `POST /api/conversations`. An untitled one is named from its first message. */
+  /**
+   * `POST /api/conversations`. An untitled one is named from its first
+   * message. `temporary: true` asks the server not to keep the
+   * conversation: it appears in no list (under any filter) or either
+   * search, cannot be pinned, shared, forked, filed or tagged -- each a
+   * 409 saying a temporary conversation is not kept -- and it is
+   * hard-deleted 24 hours after its last message. Fixed at creation.
+   */
   create(params: CreateConversationParams = {}, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
     return this.call("POST", "/api/conversations", defined({ ...params }), options);
   }
@@ -303,7 +311,7 @@ export class Conversations {
     return this.call("PUT", conversationPath(conversationId, "/active-leaf"), { message_id: messageId }, options);
   }
 
-  /** Copy the path down to `messageId` into a new conversation. */
+  /** Copy the path down to `messageId` into a new conversation. `ConflictError` for a temporary conversation: a temporary one is not kept, so it cannot be forked. */
   fork(
     conversationId: string,
     messageId: string,
@@ -330,7 +338,7 @@ export class Conversations {
     return this.call("DELETE", conversationPath(conversationId), undefined, options);
   }
 
-  /** `PUT /api/conversations/{id}/pin`: to the top of the sidebar, first in the `pinned` filter. `ConflictError` for a temporary conversation, which cannot be kept. */
+  /** `PUT /api/conversations/{id}/pin`: to the top of the sidebar, first in the `pinned` filter. `ConflictError` for a temporary conversation: a temporary one is not kept, so it cannot be pinned. */
   pin(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
     return this.call("PUT", conversationPath(conversationId, "/pin"), undefined, options);
   }
@@ -638,6 +646,19 @@ export class Messages {
     return this.call(
       "DELETE",
       `/api/messages/${segment("messageId", messageId)}/feedback`,
+      undefined,
+      options,
+    );
+  }
+
+  /** `GET /api/conversations/{id}/feedback`: the caller's own ratings in this conversation, in creation order, so the thumbs can be redrawn on reload. Nobody else's rows, and no aggregates. */
+  listFeedback(
+    conversationId: string,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<MessageFeedbackList>> {
+    return this.call(
+      "GET",
+      `${conversationPath(conversationId, "/feedback")}`,
       undefined,
       options,
     );

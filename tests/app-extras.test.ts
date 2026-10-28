@@ -184,6 +184,25 @@ describe("messages feedback", () => {
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/messages/m-asst/feedback`);
   });
 
+  it("listFeedback reads the caller's own rows in order", async () => {
+    const row = (messageId: string, rating: number) => ({
+      message_id: messageId,
+      rating,
+      reasons: rating < 0 ? ["wrong"] : [],
+      comment: null,
+      created_at: "2026-10-18T09:00:00+00:00",
+      updated_at: "2026-10-18T09:00:00+00:00",
+    });
+    const CONV = "c0ffee00-0000-4000-8000-000000000001";
+    const { fetch, seen } = stubFetch([json({ data: [row("m-1", 1), row("m-2", -1)] })]);
+    const rows = await client(fetch).messages.listFeedback(CONV);
+    expect(rows.requestId).toBe(REQUEST_ID);
+    expect(rows.data.map((r) => r.message_id)).toEqual(["m-1", "m-2"]);
+    expect(rows.data[1]!.rating).toBe(-1);
+    expect(seen[0]!.method).toBe("GET");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/conversations/${CONV}/feedback`);
+  });
+
   it("names the vocabulary the reasons draw from", () => {
     expect([...FEEDBACK_REASONS]).toContain("wrong");
   });

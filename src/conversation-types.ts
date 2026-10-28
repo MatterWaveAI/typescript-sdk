@@ -38,6 +38,7 @@ export const APP_OPERATIONS = {
   "instructions.updateOrg": ["PUT", "/api/org/instructions"],
   "messages.setFeedback": ["PUT", "/api/messages/{message_id}/feedback"],
   "messages.deleteFeedback": ["DELETE", "/api/messages/{message_id}/feedback"],
+  "messages.listFeedback": ["GET", "/api/conversations/{conversation_id}/feedback"],
   "appModels": ["GET", "/api/models"],
   "auth.device.start": ["POST", "/api/auth/device"],
   "auth.device.poll": ["POST", "/api/auth/device/token"],
@@ -133,6 +134,12 @@ export interface Conversation {
   pinned_at: string | null;
   archived_at: string | null;
   folder_id: string | null;
+  /**
+   * A temporary conversation is in no list or search, cannot be pinned,
+   * shared, forked, filed or tagged (each a 409), and is hard-deleted a day
+   * after its last message. Fixed at creation.
+   */
+  temporary?: boolean | null;
 }
 
 /**
@@ -198,6 +205,13 @@ export interface ConversationContext {
 export interface CreateConversationParams {
   title?: string | null;
   model?: string | null;
+  /**
+   * Ask the server not to keep the conversation: absent from every list
+   * filter and both searches, refused by share/pin/fork/library with a 409
+   * ("A temporary conversation is not kept, so it cannot be …"), and
+   * hard-deleted 24 hours after its last message. Fixed at creation.
+   */
+  temporary?: boolean | null;
 }
 
 /**
@@ -338,6 +352,11 @@ export interface RemovedFeedback {
   status: string;
 }
 
+/** `GET /api/conversations/{id}/feedback`: the caller's own ratings in one conversation, in creation order, so the thumbs can be redrawn on reload. */
+export interface MessageFeedbackList {
+  data: MessageFeedback[];
+}
+
 /** One row of the model picker: the model, what it costs, and the caller's plan's relationship to it. `supports_vision` is the one field the gateway may leave out. */
 export interface AppModel {
   id: string;
@@ -360,4 +379,40 @@ export interface AppModelList {
   object: string;
   data: AppModel[];
   default_model: string | null;
+}
+
+// --- vision -------------------------------------------------------------------
+//
+// Whether the selected model can see an image, mirrored from the web app's
+// vision.ts, which reads the same `GET /api/models` rows.
+
+export type VisionVerdict = "yes" | "no" | "unknown";
+
+/**
+ * What the model list says about `modelId`.
+ *
+ * Gate BEFORE the upload: the point of the check is that the person learns
+ * their screenshot will not be sent while they are still choosing the file,
+ * not after they have waited out a 5 MB upload and a spinner. The server's
+ * own 422 ("The model … does not accept image input") is the authority and
+ * is not replaced by this -- it simply arrives too late to be good UX.
+ *
+ * `"no"` is the only refusing verdict. `modelId: null` (the picker's
+ * "Default") is `"unknown"`, because which model that resolves to is the
+ * server's business; a model absent from the list is `"unknown"`, not
+ * `"no"`, because the picker and the gateway can disagree transiently and
+ * that must not become a refusal; and `supports_vision: null` is
+ * `"unknown"`, because a bare llama.cpp or vLLM build serves a model list
+ * with nothing but `id` and treating silence as "no" would make attachments
+ * dead there. The cost of a wrong "yes" is the upstream error the caller
+ * would have got anyway; the cost of a wrong "no" is a capable model nobody
+ * can use. Mirrors `vision.support_for` in the API.
+ */
+export function visionOf(models: readonly AppModel[] | null, modelId: string | null): VisionVerdict {
+  if (modelId === null || models === null) return "unknown";
+  const entry = models.find((model) => model.id === modelId);
+  if (entry === undefined) return "unknown";
+  if (entry.supports_vision === true) return "yes";
+  if (entry.supports_vision === false) return "no";
+  return "unknown";
 }

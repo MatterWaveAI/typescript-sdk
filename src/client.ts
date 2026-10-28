@@ -28,6 +28,7 @@ import {
 } from "./errors.js";
 import type { RateLimit } from "./errors.js";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
+import { Mcp } from "./mcp.js";
 import { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import type {
@@ -46,7 +47,7 @@ import type {
 import type { Me } from "./conversation-types.js";
 import type { AppModelList } from "./conversation-types.js";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
 export const BASE_URL_ENV = "MATTERWAVE_BASE_URL";
 const API_PREFIX = "/v1";
@@ -97,6 +98,8 @@ export interface Prepared {
   stream: boolean;
   /** Headers the operation itself needs, such as `Last-Event-ID` on a resume. */
   headers?: Record<string, string>;
+  /** This request's timeout, where the client's default is wrong for it: an MCP tool that runs a whole model turn takes minutes, not seconds. */
+  timeoutMs?: number;
 }
 
 function envValue(name: string): string | null {
@@ -447,6 +450,8 @@ export class MatterWave {
   readonly shares: Shares;
   /** The org's allowance, its overage, and the caps that stop it. */
   readonly budget: BudgetClient;
+  /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
+  readonly mcp: Mcp;
   private readonly apiKey: string | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
@@ -477,6 +482,7 @@ export class MatterWave {
     this.library = new LibraryClient(this);
     this.shares = new Shares(this);
     this.budget = new BudgetClient(this);
+    this.mcp = new Mcp(this);
   }
 
   /** `GET /v1`: the version, the endpoints and the stability promise. No key needed. */
@@ -574,7 +580,7 @@ export class MatterWave {
           : JSON.stringify(prepared.body);
     for (let attempt = 0; ; attempt += 1) {
       const controller = new AbortController();
-      const stop = linkSignals(controller, options.signal, this.timeoutMs);
+      const stop = linkSignals(controller, options.signal, prepared.timeoutMs ?? this.timeoutMs);
       let response: Response;
       try {
         response = await this.fetchImpl(url, {

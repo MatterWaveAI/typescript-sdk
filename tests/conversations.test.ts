@@ -272,6 +272,20 @@ describe("the JSON routes", () => {
     expect(seen[3]!.url).toBe(`${BASE_URL}/api/conversations/${CONV}?full=1`);
   });
 
+  it("create can ask for a temporary conversation", async () => {
+    const { fetch, seen } = stubFetch([
+      json(conversation({ temporary: true }), 201),
+      json(conversation({ temporary: true }), 201),
+    ]);
+    const temp = await client(fetch).conversations.create({ title: "Scratch", temporary: true });
+    expect(temp.temporary).toBe(true);
+    expect(seen[0]!.body).toEqual({ title: "Scratch", temporary: true });
+    // False is sent as false, so the caller's explicit choice survives any
+    // server default drift.
+    await client(fetch).conversations.create({ title: "Keep", temporary: false });
+    expect(seen[1]!.body).toEqual({ title: "Keep", temporary: false });
+  });
+
   it("list sends limit and cursor, and pages() walks every page", async () => {
     const second = "c0ffee00-0000-4000-8000-000000000002";
     const third = "c0ffee00-0000-4000-8000-000000000003";
@@ -336,6 +350,31 @@ describe("the JSON routes", () => {
     expect((err as ConflictError).status).toBe(409);
     expect((err as ConflictError).message).toBe("Nothing to compact yet.");
     expect((err as ConflictError).requestId).toBe(REQUEST_ID);
+  });
+
+  it("a pin of a temporary conversation is the route's own conflict", async () => {
+    // The route's own words: keeping is exactly what a temporary conversation does not do.
+    const { fetch } = stubFetch([
+      json({ detail: "A temporary conversation is not kept, so it cannot be pinned.", request_id: REQUEST_ID }, 409),
+    ]);
+    const err = await client(fetch, { maxRetries: 0 }).conversations.pin(CONV).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).message).toBe(
+      "A temporary conversation is not kept, so it cannot be pinned.",
+    );
+  });
+
+  it("a fork of a temporary conversation is the same conflict", async () => {
+    const { fetch } = stubFetch([
+      json({ detail: "A temporary conversation is not kept, so it cannot be forked.", request_id: REQUEST_ID }, 409),
+    ]);
+    const err = await client(fetch, { maxRetries: 0 })
+      .conversations.fork(CONV, "m-user")
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).message).toBe(
+      "A temporary conversation is not kept, so it cannot be forked.",
+    );
   });
 
   it("update sets and clears the default model, always sending the field", async () => {
