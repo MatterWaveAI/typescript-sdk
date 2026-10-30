@@ -29,7 +29,7 @@ import {
 import type { RateLimit } from "./errors.js";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
-import { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
+import { Announcements, Attachments, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import type {
   ApiIndex,
@@ -450,6 +450,12 @@ export class MatterWave {
   readonly shares: Shares;
   /** The org's allowance, its overage, and the caps that stop it. */
   readonly budget: BudgetClient;
+  /** The caller's notifications: the bell, read one or all. */
+  readonly notifications: Notifications;
+  /** The operator's announcements, active now. */
+  readonly announcements: Announcements;
+  /** What the caller's org is allowed to do: the plan and its limits. */
+  readonly entitlements: EntitlementsClient;
   /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
   readonly mcp: Mcp;
   private readonly apiKey: string | null;
@@ -482,6 +488,9 @@ export class MatterWave {
     this.library = new LibraryClient(this);
     this.shares = new Shares(this);
     this.budget = new BudgetClient(this);
+    this.notifications = new Notifications(this);
+    this.announcements = new Announcements(this);
+    this.entitlements = new EntitlementsClient(this);
     this.mcp = new Mcp(this);
   }
 

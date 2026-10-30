@@ -493,6 +493,32 @@ describe("the JSON routes", () => {
     expect(seen[1]!.body).toEqual({ text: null });
   });
 
+  it("report files a kind with the message and the reporter's words", async () => {
+    const { fetch, seen } = stubFetch([json({ id: "rep-1", kind: "unsafe" }, 201)]);
+    const filed = await client(fetch).conversations.report(CONV, "unsafe", {
+      message_id: "m-asst",
+      note: "Something is off here.",
+    });
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/conversations/${CONV}/report`);
+    expect(seen[0]!.body).toEqual({ kind: "unsafe", message_id: "m-asst", note: "Something is off here." });
+    expect([filed.id, filed.kind]).toEqual(["rep-1", "unsafe"]);
+    expect(filed.requestId).toBe(REQUEST_ID);
+  });
+
+  it("report sends what was given and nothing else", async () => {
+    const { fetch, seen } = stubFetch([json({ id: "rep-2", kind: "unhelpful" }, 201)]);
+    await client(fetch).conversations.report(CONV, "unhelpful");
+    expect(seen[0]!.body).toEqual({ kind: "unhelpful" });
+  });
+
+  it("report refuses an unknown kind before the request", () => {
+    const { fetch, seen } = stubFetch([]);
+    // @ts-expect-error -- not a kind
+    expect(() => client(fetch).conversations.report(CONV, "spam")).toThrow(/kind must be one of/);
+    expect(seen).toHaveLength(0);
+  });
+
   it("every app operation is a client method", () => {
     const c = new MatterWave({ apiKey: "k", baseUrl: BASE_URL });
     for (const dotted of Object.keys(APP_OPERATIONS)) {

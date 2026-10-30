@@ -211,6 +211,18 @@ const page = await client.library.search("invoice", { limit: 20 });
 // Shares: the token is on create only; view needs no key.
 const link = await client.shares.create(conversationId, { expires_in_s: 7 * 86400 });
 await client.shares.revoke(link.share.id);
+
+// Notifications: the bell, the caller's own rows only.
+const bell = await client.notifications.list({ unread: true });
+await client.notifications.read(bell.data[0]!.id);
+await client.notifications.readAll();
+
+// Announcements: what the operator is telling everyone right now.
+for (const banner of (await client.announcements.list()).data) console.log(banner.severity, banner.message);
+
+// Entitlements: the org's plan, its limits, and what a downgrade blocks.
+const plan = await client.entitlements.get();
+if (plan.writes_blocked) console.warn(plan.read_only_reason);
 ```
 
 `keys`: `list`, `create`, `update`, `rotate`, `revoke`. `usage`: `get`, `org`,
@@ -219,8 +231,10 @@ await client.shares.revoke(link.share.id);
 `get`, `delete`, `download`, `limits`. `library`: `get`, `search`,
 `createFolder`, `updateFolder`, `deleteFolder`, `move`, `createTag`,
 `deleteTag`, `setTags`. `shares`: `create`, `list`, `listMine`, `revoke`,
-`view`. A delete or revoke resolves to `undefined`; a missing id is a
-`NotFoundError`.
+`view`. `notifications`: `list`, `read`, `readAll`. `announcements`: `list`.
+`entitlements`: `get`. `conversations` gains `report(id, kind, { message_id?,
+note? })`: `kind` is `unsafe` or `unhelpful`. A delete or revoke resolves to
+`undefined`; a missing id is a `NotFoundError`.
 
 ## Device login
 

@@ -34,12 +34,14 @@ import type {
   OrgInstructions,
   RegenerateMessageParams,
   RemovedFeedback,
+  ReportFiled,
+  ReportKind,
   SearchResults,
   SendMessageParams,
   UpdateConversationParams,
   UserInstructions,
 } from "./conversation-types.js";
-import { FEEDBACK_REASONS } from "./conversation-types.js";
+import { FEEDBACK_REASONS, REPORT_KINDS } from "./conversation-types.js";
 import { APIConnectionError, APIError, APITimeoutError, DeviceAuthError, MatterWaveError } from "./errors.js";
 import { frameFromEvent, isTerminal, type ConversationFrame } from "./frames.js";
 import { sseEvents, type SSEEvent } from "./sse.js";
@@ -356,6 +358,28 @@ export class Conversations {
   /** `DELETE /api/conversations/{id}/archive`: back to the default list. */
   unarchive(conversationId: string, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
     return this.call("DELETE", conversationPath(conversationId, "/archive"), undefined, options);
+  }
+
+  /**
+   * `POST /api/conversations/{id}/report` (201): file a report on the
+   * conversation, or on one message in it. `kind` is `unsafe` (routes to
+   * review) or `unhelpful` (routes to the product backlog); `note` is the
+   * reporter's own words, capped at 2000 characters. The answer's `id` is
+   * what a person quotes to support. A handful of reports an hour, so a
+   * genuine one is never the call that is refused.
+   */
+  report(
+    conversationId: string,
+    kind: ReportKind,
+    params: { message_id?: string; note?: string | null } = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<ReportFiled>> {
+    segment("conversationId", conversationId);
+    if (!(REPORT_KINDS as readonly string[]).includes(kind)) {
+      throw new MatterWaveConfigError(`kind must be one of ${REPORT_KINDS.join(", ")}, got ${kind}`);
+    }
+    const body = defined({ kind, message_id: params.message_id, note: params.note });
+    return this.call("POST", conversationPath(conversationId, "/report"), body, options);
   }
 
   /**

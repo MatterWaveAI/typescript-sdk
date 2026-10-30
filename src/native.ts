@@ -1,7 +1,8 @@
 /**
  * The native API clients: `keys`, `usage`, `webhooks`, `attachments`,
- * `library`, `shares` and `budget`, one method per route on top of the
- * client's request and retry loop.
+ * `library`, `shares`, `budget`, `notifications`, `announcements` and
+ * `entitlements`, one method per route on top of the client's request and
+ * retry loop.
  *
  *     const key = await client.keys.create({ name: "ci", expires_in_days: 90 });
  *     const csv = await client.usage.exportCsv({ period: "2026-10" });
@@ -12,7 +13,10 @@
  * (`usage.org`, `usage.exportCsv`) a key with `usage:read`, and moving a
  * budget cap an owner or admin. The scope never widens the owner's role:
  * webhooks still need the owner to be an org owner or admin, and a member's
- * `usage:read` key sees only their own row.
+ * `usage:read` key sees only their own row. Notifications, announcements
+ * and entitlements are the caller's own view, the way `/api/me` is: a
+ * notification id belonging to someone else is a 404, indistinguishable
+ * from a missing one.
  */
 
 import { MatterWaveConfigError } from "./client.js";
@@ -20,6 +24,7 @@ import type { MatterWave, Prepared, RequestOptions } from "./client.js";
 import type { Conversation, SearchResults } from "./conversation-types.js";
 import { query, segment } from "./conversations.js";
 import type {
+  AnnouncementList,
   ApiKey,
   ApiKeyList,
   ApiKeyWithSecret,
@@ -32,12 +37,17 @@ import type {
   CreateWebhookParams,
   CreatedShare,
   DeliveryStatus,
+  Entitlements,
   Folder,
   Library,
   LibrarySearchParams,
   MemberBudget,
   MemberBudgetList,
+  NotificationList,
+  NotificationListParams,
   OrgUsage,
+  ReadAllNotifications,
+  ReadNotification,
   SetMemberCapParams,
   SetMemberDefaultCapParams,
   SetOverageCapParams,
@@ -431,5 +441,66 @@ export class Shares extends Resource {
       { method: "GET", path: `/api/share/${segment("token", token)}`, body: undefined, keyed: false, stream: false },
       options,
     );
+  }
+}
+
+// --- notifications -------------------------------------------------------------
+
+function notificationPath(notificationId: string): string {
+  return `/api/me/notifications/${segment("notificationId", notificationId)}/read`;
+}
+
+/** The bell: one row per person per event, written where the event happens. Reading is the caller's own; another person's id is a 404. */
+export class Notifications extends Resource {
+  /**
+   * The caller's notifications, newest first, with the unread count the
+   * bell shows. `unread: true` lists only the unread rows; the count is
+   * the same either way. At most 100 rows a page, 30 when omitted.
+   */
+  list(
+    params: NotificationListParams = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<NotificationList>> {
+    return this.call(
+      "GET",
+      `/api/me/notifications${query({ unread: params.unread ? 1 : undefined, limit: params.limit })}`,
+      undefined,
+      options,
+    );
+  }
+
+  /** Mark one read; an already-read row keeps its first `read_at`. The answer carries the unread count left. */
+  read(notificationId: string, options: RequestOptions = {}): Promise<WithRequestId<ReadNotification>> {
+    return this.call("POST", notificationPath(notificationId), undefined, options);
+  }
+
+  /** Mark every unread row read. The answer counts the rows it changed. */
+  readAll(options: RequestOptions = {}): Promise<WithRequestId<ReadAllNotifications>> {
+    return this.call("POST", "/api/me/notifications/read-all", undefined, options);
+  }
+}
+
+// --- announcements -------------------------------------------------------------
+
+/** The operator's banners: every signed-in principal reads the ones inside their window, most severe first. A critical one is never dismissible. */
+export class Announcements extends Resource {
+  /** The announcements active now, most severe first; an empty list where there is no store behind them. */
+  list(options: RequestOptions = {}): Promise<WithRequestId<AnnouncementList>> {
+    return this.call("GET", "/api/announcements", undefined, options);
+  }
+}
+
+// --- entitlements --------------------------------------------------------------
+
+/** What the caller's org is allowed to do: the plan, its limits with the conventions applied, and what a downgrade blocks. Any member may read it. */
+export class EntitlementsClient extends Resource {
+  /**
+   * `GET /api/entitlements`: `writes_blocked` and `read_only_reason` are
+   * what an org over its plan's conversation cap shows its members, and
+   * `limits` already applies the null-means-unlimited convention, so no
+   * caller reads `plan.limits` by hand.
+   */
+  get(options: RequestOptions = {}): Promise<WithRequestId<Entitlements>> {
+    return this.call("GET", "/api/entitlements", undefined, options);
   }
 }

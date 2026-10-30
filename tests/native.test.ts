@@ -1,8 +1,9 @@
 /**
  * The native API clients against the fake API: keys, usage, webhooks,
- * attachments, library and shares. Each test answers with the body the
- * route in api/matterwave sends and checks the request the client made
- * (method, path, query, body) and what came back.
+ * attachments, library, shares, notifications, announcements and
+ * entitlements. Each test answers with the body the route in api/matterwave
+ * sends and checks the request the client made (method, path, query, body)
+ * and what came back.
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -22,7 +23,7 @@ import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROUTES = resolve(here, "../../../api/matterwave");
-const NATIVE = ["keys", "usage", "webhooks", "attachments", "library", "shares"];
+const NATIVE = ["keys", "usage", "webhooks", "attachments", "library", "shares", "notifications", "announcements", "entitlements"];
 
 const KEY_ID = "key-0001";
 const ENDPOINT_ID = "whe-0001";
@@ -34,10 +35,15 @@ function nativeOperations(): [string, readonly [string, string]][] {
   return Object.entries(APP_OPERATIONS).filter(([key]) => NATIVE.includes(key.split(".")[0]!));
 }
 
-/** Every (method, path) the app's routers declare, read from the source. */
+/** Every (method, path) the app's routers declare, read from the source. The
+ *  native routes live in the routes_* files, and notifications and
+ *  announcements carry their own routers beside them. */
 function apiRoutes(): Set<string> {
   const found = new Set<string>();
-  for (const name of readdirSync(ROUTES).filter((f) => /^routes_.*\.py$/.test(f))) {
+  const names = readdirSync(ROUTES).filter(
+    (f) => /^routes_.*\.py$/.test(f) || f === "notifications.py" || f === "announcements.py",
+  );
+  for (const name of names) {
     const source = readFileSync(join(ROUTES, name), "utf-8");
     const prefixes = new Map<string, string>();
     for (const m of source.matchAll(/(\w+)\s*=\s*APIRouter\([^)]*prefix="([^"]*)"/g)) prefixes.set(m[1]!, m[2]!);
@@ -604,5 +610,175 @@ describe("shares", () => {
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/share/tok_x`);
     expect(seen[0]!.headers.Authorization).toBeUndefined();
     expect(shared.messages).toHaveLength(1);
+  });
+});
+
+// --- notifications --------------------------------------------------------------
+
+const NOTIFICATION_ID = "ntf-0001";
+
+function notificationBody(extra: Record<string, unknown> = {}) {
+  return {
+    id: NOTIFICATION_ID,
+    kind: "budget.warn",
+    title: "80% of this period's included tokens used",
+    body: "The organisation is approaching the tokens its plan includes.",
+    link: "/settings/usage",
+    created_at: "2026-10-18T09:00:00+00:00",
+    read_at: null,
+    ...extra,
+  };
+}
+
+describe("notifications", () => {
+  it("lists newest first with the unread count the bell shows", async () => {
+    const { fetch, seen } = stubFetch([json({ data: [notificationBody()], unread_count: 2 })]);
+    const listed = await client(fetch).notifications.list();
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/notifications`);
+    expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    expect(listed.data[0]!.kind).toBe("budget.warn");
+    expect(listed.unread_count).toBe(2);
+    expect(listed.requestId).toBe(REQUEST_ID);
+  });
+
+  it("sends the unread filter and the page size the way the route reads them", async () => {
+    const { fetch, seen } = stubFetch([json({ data: [], unread_count: 0 })]);
+    await client(fetch).notifications.list({ unread: true, limit: 10 });
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/notifications?unread=1&limit=10`);
+  });
+
+  it("marks one read and reads the count that is left", async () => {
+    const { fetch, seen } = stubFetch([
+      json({ ...notificationBody({ read_at: "2026-10-18T10:00:00+00:00" }), unread_count: 1 }),
+    ]);
+    const read = await client(fetch).notifications.read(NOTIFICATION_ID);
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/notifications/${NOTIFICATION_ID}/read`);
+    expect([read.read_at, read.unread_count]).toEqual(["2026-10-18T10:00:00+00:00", 1]);
+  });
+
+  it("marks every unread row read", async () => {
+    const { fetch, seen } = stubFetch([json({ read: 3, unread_count: 0 })]);
+    const all = await client(fetch).notifications.readAll();
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/notifications/read-all`);
+    expect([all.read, all.unread_count]).toEqual([3, 0]);
+  });
+
+  it("someone else's notification is NotFoundError like a missing one", async () => {
+    const { fetch } = stubFetch([json({ detail: "No such notification." }, 404)]);
+    const error = await client(fetch).notifications.read(NOTIFICATION_ID).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NotFoundError);
+    expect((error as NotFoundError).message).toBe("No such notification.");
+  });
+
+  it("refuses an id that would change the path", () => {
+    const c = client(stubFetch([json({})]).fetch);
+    expect(() => c.notifications.read("../read-all")).toThrow(MatterWaveConfigError);
+  });
+});
+
+// --- announcements --------------------------------------------------------------
+
+function announcementBody(extra: Record<string, unknown> = {}) {
+  return {
+    id: "ann-0001",
+    message: "The API is having a bad afternoon.",
+    severity: "warning",
+    link: null,
+    starts_at: "2026-10-18T08:00:00+00:00",
+    ends_at: null,
+    dismissible: true,
+    ...extra,
+  };
+}
+
+describe("announcements", () => {
+  it("lists the ones inside their window, most severe first", async () => {
+    const { fetch, seen } = stubFetch([
+      json({
+        data: [
+          announcementBody({ severity: "critical", dismissible: false }),
+          announcementBody(),
+          announcementBody({ severity: "info", message: "Scheduled maintenance on Sunday." }),
+        ],
+      }),
+    ]);
+    const listed = await client(fetch).announcements.list();
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/announcements`);
+    expect(listed.data.map((a) => [a.severity, a.dismissible])).toEqual([
+      ["critical", false],
+      ["warning", true],
+      ["info", true],
+    ]);
+  });
+});
+
+// --- entitlements ----------------------------------------------------------------
+
+const ENTITLEMENTS = {
+  org_id: "org-1",
+  plan: "team",
+  plan_name: "Team",
+  status: "active",
+  seats: 5,
+  per_seat: true,
+  billed_seats: 5,
+  price_cents_monthly: 2500,
+  price_cents_annual: 25000,
+  implicit: false,
+  billing_interval: "monthly",
+  current_period_end: "2026-11-01T00:00:00+00:00",
+  cancel_at_period_end: false,
+  trial_end: null,
+  default_overage_cap_micros: 50_000_000,
+  limits: {
+    included_tokens: 5_000_000,
+    included_tokens_per_seat: 1_000_000,
+    overage_enabled: true,
+    budget_duration: "30d",
+    tpm_limit: null,
+    rpm_limit: null,
+    max_parallel_requests: null,
+    max_conversations: null,
+    max_seats: 10,
+    allowed_models: null,
+    features: { api_keys: true, webhooks: true },
+  },
+  over_capacity: 0,
+  writes_blocked: false,
+  read_only_reason: null,
+  dunning_stage: "clear",
+};
+
+describe("entitlements", () => {
+  it("reads what the caller's org is allowed to do", async () => {
+    const { fetch, seen } = stubFetch([json(ENTITLEMENTS)]);
+    const entitlements = await client(fetch).entitlements.get();
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/entitlements`);
+    expect([entitlements.plan, entitlements.plan_name, entitlements.billed_seats]).toEqual(["team", "Team", 5]);
+    expect(entitlements.limits.included_tokens).toBe(5_000_000);
+    expect([entitlements.writes_blocked, entitlements.read_only_reason]).toEqual([false, null]);
+    expect(entitlements.requestId).toBe(REQUEST_ID);
+  });
+
+  it("an org over its plan's cap reads as blocked, with the reason beside it", async () => {
+    const { fetch } = stubFetch([
+      json({
+        ...ENTITLEMENTS,
+        plan: "free",
+        plan_name: "Free",
+        per_seat: false,
+        billed_seats: 1,
+        implicit: true,
+        over_capacity: 2,
+        writes_blocked: true,
+        read_only_reason: "This organisation holds 2 conversations more than the Free plan's limit of 5.",
+      }),
+    ]);
+    const entitlements = await client(fetch).entitlements.get();
+    expect(entitlements.writes_blocked).toBe(true);
+    expect(entitlements.read_only_reason).toMatch(/holds 2 conversations/);
+    expect(entitlements.limits.features.api_keys).toBe(true);
   });
 });

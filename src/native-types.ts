@@ -389,3 +389,124 @@ export interface SharedConversation {
   messages: Record<string, unknown>[];
   org_name: string | null;
 }
+
+// --- notifications ------------------------------------------------------------
+
+/**
+ * One notification: a budget threshold crossed, a plan moved, a member
+ * joined or left, an export ready. `link` is a path in the web app, to
+ * prefix with its origin; `read_at` is null until it is read.
+ */
+export interface Notification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  link: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationListParams {
+  /** Only the unread rows; the unread count is the same either way. */
+  unread?: boolean;
+  /** Rows per page, 1 to 100; 30 when omitted. */
+  limit?: number;
+}
+
+/** `GET /api/me/notifications`: the caller's rows, newest first, and the count the bell shows. */
+export interface NotificationList {
+  data: Notification[];
+  unread_count: number;
+}
+
+/** The answer to `read`: the row, with the caller's remaining unread count beside it. */
+export interface ReadNotification extends Notification {
+  unread_count: number;
+}
+
+/** The answer to `readAll`: how many rows it marked, and the count that is left, always 0. */
+export interface ReadAllNotifications {
+  read: number;
+  unread_count: number;
+}
+
+// --- announcements ------------------------------------------------------------
+
+export type AnnouncementSeverity = "info" | "warning" | "critical";
+
+/** One announcement as the banner reads it: the message, its severity, an optional link and the window. Nothing about who wrote it. */
+export interface Announcement {
+  id: string;
+  message: string;
+  severity: AnnouncementSeverity | (string & {});
+  link: string | null;
+  starts_at: string;
+  /** Null is open-ended. */
+  ends_at: string | null;
+  /** Never true for a critical one; the store refuses the row otherwise. */
+  dismissible: boolean;
+}
+
+/** `GET /api/announcements`: the ones inside their window right now, most severe first. */
+export interface AnnouncementList {
+  data: Announcement[];
+}
+
+// --- entitlements -------------------------------------------------------------
+
+/**
+ * The plan's limits with the conventions applied: null is unlimited, not
+ * zero, and `included_tokens` already counts the seats on a plan sold per
+ * seat.
+ */
+export interface EntitlementLimits {
+  included_tokens: number;
+  included_tokens_per_seat: number | null;
+  overage_enabled: boolean;
+  budget_duration: string;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
+  max_parallel_requests: number | null;
+  /** Null is unlimited, not zero. */
+  max_conversations: number | null;
+  max_seats: number | null;
+  /** Null means every model but the partner ones; a list is the allow-list. */
+  allowed_models: string[] | null;
+  features: Record<string, boolean>;
+}
+
+/**
+ * `GET /api/entitlements`: what the caller's org is allowed to do. Past 0,
+ * `over_capacity` says a downgrade left conversations behind -- read-only,
+ * never deleted -- and `writes_blocked` with `read_only_reason` are what
+ * the UI shows then. `dunning_stage` is the late-payment stage, `clear` in
+ * good standing.
+ */
+export interface Entitlements {
+  org_id: string;
+  /** The plan's code; `plan_name` is its display name. */
+  plan: string;
+  plan_name: string;
+  status: string;
+  seats: number;
+  /** True when the plan's price and allowance are per seat. */
+  per_seat: boolean;
+  /** The seats the price is multiplied by: `seats` on a per-seat plan, 1 otherwise. */
+  billed_seats: number;
+  price_cents_monthly: number;
+  price_cents_annual: number;
+  /** True when the org has no subscription row at all: on free by default, not a missing record. */
+  implicit: boolean;
+  billing_interval: string;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  /** When the org's free trial ends, while it is in one. */
+  trial_end: string | null;
+  default_overage_cap_micros: number;
+  limits: EntitlementLimits;
+  over_capacity: number;
+  writes_blocked: boolean;
+  read_only_reason: string | null;
+  dunning_stage: string;
+}

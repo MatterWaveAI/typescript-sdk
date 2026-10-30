@@ -10,9 +10,10 @@
  * `client.conversations` is the app's own conversation API, streaming typed
  * frames; `client.auth.device` signs a person in by device code and returns
  * the key to use. `client.keys`, `client.usage`, `client.webhooks`,
- * `client.attachments`, `client.library` and `client.shares` are the app's
- * native routes for the same, and `client.mcp` speaks the `/mcp` JSON-RPC
- * endpoint (list tools, call one, send a message).
+ * `client.attachments`, `client.library`, `client.shares`, `client.budget`,
+ * `client.notifications`, `client.announcements` and `client.entitlements`
+ * are the app's native routes for the same, and `client.mcp` speaks the
+ * `/mcp` JSON-RPC endpoint (list tools, call one, send a message).
  */
 
 export {
@@ -33,11 +34,14 @@ export {
 export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
-export { APP_OPERATIONS, FEEDBACK_REASONS, summaryOf, visionOf } from "./conversation-types.js";
+export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
-export { Attachments, BudgetClient, Keys, LibraryClient, Shares, UsageClient, Webhooks } from "./native.js";
+export { Announcements, Attachments, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
+  Announcement,
+  AnnouncementList,
+  AnnouncementSeverity,
   ApiKey,
   ApiKeyList,
   ApiKeyWithSecret,
@@ -51,6 +55,7 @@ export type {
   CreatedShare,
   DailyUsage,
   DeliveryStatus,
+  Entitlements,
   Folder,
   KeySettings,
   Library,
@@ -59,7 +64,12 @@ export type {
   MemberBudgetList,
   MemberUsage,
   ModelUsage,
+  Notification,
+  NotificationList,
+  NotificationListParams,
   OrgUsage,
+  ReadAllNotifications,
+  ReadNotification,
   SetMemberCapParams,
   SetMemberDefaultCapParams,
   SetOverageCapParams,
@@ -103,6 +113,8 @@ export type {
   OrgInstructions,
   RegenerateMessageParams,
   RemovedFeedback,
+  ReportFiled,
+  ReportKind,
   SearchHit,
   SearchResults,
   SendMessageParams,

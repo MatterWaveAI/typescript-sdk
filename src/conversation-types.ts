@@ -31,6 +31,7 @@ export const APP_OPERATIONS = {
   "conversations.unpin": ["DELETE", "/api/conversations/{conversation_id}/pin"],
   "conversations.archive": ["PUT", "/api/conversations/{conversation_id}/archive"],
   "conversations.unarchive": ["DELETE", "/api/conversations/{conversation_id}/archive"],
+  "conversations.report": ["POST", "/api/conversations/{conversation_id}/report"],
   "conversations.updateInstructions": ["PUT", "/api/conversations/{conversation_id}/instructions"],
   "instructions.user": ["GET", "/api/me/instructions"],
   "instructions.updateUser": ["PUT", "/api/me/instructions"],
@@ -83,6 +84,11 @@ export const APP_OPERATIONS = {
   "budget.members": ["GET", "/api/budget/members"],
   "budget.setMemberDefaultCap": ["PUT", "/api/budget/members"],
   "budget.setMemberCap": ["PUT", "/api/budget/members/{subject}"],
+  "notifications.list": ["GET", "/api/me/notifications"],
+  "notifications.read": ["POST", "/api/me/notifications/{notification_id}/read"],
+  "notifications.readAll": ["POST", "/api/me/notifications/read-all"],
+  "announcements.list": ["GET", "/api/announcements"],
+  "entitlements.get": ["GET", "/api/entitlements"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {
@@ -355,6 +361,19 @@ export interface RemovedFeedback {
 /** `GET /api/conversations/{id}/feedback`: the caller's own ratings in one conversation, in creation order, so the thumbs can be redrawn on reload. */
 export interface MessageFeedbackList {
   data: MessageFeedback[];
+}
+
+// --- reports ------------------------------------------------------------------
+
+/** What a report is about: `unsafe` routes to review, `unhelpful` to the product backlog. Most reports are the second kind, refusal complaints included. */
+export const REPORT_KINDS = ["unsafe", "unhelpful"] as const;
+
+export type ReportKind = (typeof REPORT_KINDS)[number];
+
+/** The answer to `conversations.report` (201): the report's id, to quote to support. */
+export interface ReportFiled {
+  id: string;
+  kind: ReportKind;
 }
 
 /** One row of the model picker: the model, what it costs, and the caller's plan's relationship to it. `supports_vision` is the one field the gateway may leave out. */
