@@ -47,7 +47,7 @@ import type {
 import type { Me } from "./conversation-types.js";
 import type { AppModelList } from "./conversation-types.js";
 
-export const VERSION = "0.2.1";
+export const VERSION = "0.3.0";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
 export const BASE_URL_ENV = "MATTERWAVE_BASE_URL";
 const API_PREFIX = "/v1";
