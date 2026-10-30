@@ -88,6 +88,10 @@ export const APP_OPERATIONS = {
   "notifications.read": ["POST", "/api/me/notifications/{notification_id}/read"],
   "notifications.readAll": ["POST", "/api/me/notifications/read-all"],
   "announcements.list": ["GET", "/api/announcements"],
+  "admin.announcements.list": ["GET", "/api/admin/announcements"],
+  "admin.announcements.create": ["POST", "/api/admin/announcements"],
+  "admin.announcements.update": ["PATCH", "/api/admin/announcements/{announcement_id}"],
+  "admin.announcements.delete": ["DELETE", "/api/admin/announcements/{announcement_id}"],
   "entitlements.get": ["GET", "/api/entitlements"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */

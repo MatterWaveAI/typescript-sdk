@@ -19,6 +19,7 @@ import {
   PermissionDeniedError,
   setSleep,
 } from "../src/index.js";
+import type { AnnouncementSeverity } from "../src/index.js";
 import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./helpers.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -711,6 +712,150 @@ describe("announcements", () => {
       ["warning", true],
       ["info", true],
     ]);
+  });
+});
+
+// --- admin announcements ---------------------------------------------------------
+
+const ANN_ID = "ann-0001";
+
+function adminAnnouncementBody(extra: Record<string, unknown> = {}) {
+  return {
+    id: ANN_ID,
+    message: "The model gateway is degraded; turns may be slow.",
+    severity: "warning",
+    link: "https://status.example/incidents/1",
+    starts_at: "2026-10-30T08:00:00+00:00",
+    ends_at: "2026-10-31T08:00:00+00:00",
+    dismissible: true,
+    created_by: "op-0001",
+    created_at: "2026-10-30T07:59:00+00:00",
+    updated_by: "op-0001",
+    updated_at: "2026-10-30T07:59:00+00:00",
+    state: "active",
+    ...extra,
+  };
+}
+
+describe("admin announcements", () => {
+  it("lists every row with its state, not only the active ones", async () => {
+    const { fetch, seen } = stubFetch([
+      json({
+        data: [
+          adminAnnouncementBody(),
+          adminAnnouncementBody({ id: "ann-0002", state: "scheduled" }),
+          adminAnnouncementBody({ id: "ann-0003", state: "ended" }),
+        ],
+      }),
+    ]);
+    const listed = await client(fetch).admin.announcements.list();
+    expect(seen[0]!.method).toBe("GET");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/admin/announcements`);
+    expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    expect(listed.data.map((a) => a.state)).toEqual(["active", "scheduled", "ended"]);
+    const row = listed.data[0]!;
+    expect([row.created_by, row.updated_by]).toEqual(["op-0001", "op-0001"]);
+    expect([row.severity, row.dismissible]).toEqual(["warning", true]);
+    expect(listed.requestId).toBe(REQUEST_ID);
+  });
+
+  it("creates with the operator's body and leaves the defaults to the server", async () => {
+    const { fetch, seen } = stubFetch([json(adminAnnouncementBody(), 201)]);
+    const row = await client(fetch).admin.announcements.create({
+      message: "The model gateway is degraded; turns may be slow.",
+      severity: "warning",
+      link: "https://status.example/incidents/1",
+      starts_at: "2026-10-30T08:00:00+00:00",
+      dismissible: true,
+    });
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/admin/announcements`);
+    expect(seen[0]!.body).toEqual({
+      message: "The model gateway is degraded; turns may be slow.",
+      severity: "warning",
+      dismissible: true,
+      link: "https://status.example/incidents/1",
+      starts_at: "2026-10-30T08:00:00+00:00",
+    });
+    expect([row.id, row.state]).toEqual([ANN_ID, "active"]);
+    expect(row.requestId).toBe(REQUEST_ID);
+
+    const bare = stubFetch([json(adminAnnouncementBody(), 201)]);
+    await client(bare.fetch).admin.announcements.create({ message: "Maintenance on Sunday." });
+    expect(bare.seen[0]!.body).toEqual({
+      message: "Maintenance on Sunday.",
+      severity: "info",
+      dismissible: true,
+    });
+  });
+
+  it("refuses what the route would: severity, message, link", async () => {
+    const { fetch, seen } = stubFetch([json(adminAnnouncementBody(), 201)]);
+    const c = client(fetch);
+    expect(() =>
+      c.admin.announcements.create({ message: "x", severity: "loud" as AnnouncementSeverity }),
+    ).toThrow(/severity must be one of/);
+    expect(() => c.admin.announcements.create({ message: "   " })).toThrow(
+      "The message is empty.",
+    );
+    expect(() => c.admin.announcements.create({ message: "x".repeat(501) })).toThrow(
+      /500 characters/,
+    );
+    expect(() =>
+      c.admin.announcements.create({ message: "x", link: "javascript:alert(1)" }),
+    ).toThrow(/http\(s\) URL or a path/);
+    expect(() =>
+      c.admin.announcements.create({ message: "x", link: "//other-origin/x" }),
+    ).toThrow(/http\(s\) URL or a path/);
+    expect(() =>
+      c.admin.announcements.update(ANN_ID, { link: "javascript:alert(1)" }),
+    ).toThrow(/http\(s\) URL or a path/);
+    expect(seen.length).toBe(0);
+  });
+
+  it("update sends only what changed", async () => {
+    const { fetch, seen } = stubFetch([json(adminAnnouncementBody())]);
+    const row = await client(fetch).admin.announcements.update(ANN_ID, { severity: "critical" });
+    expect(seen[0]!.method).toBe("PATCH");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/admin/announcements/${ANN_ID}`);
+    expect(seen[0]!.body).toEqual({ severity: "critical" });
+    expect(row.id).toBe(ANN_ID);
+    expect(row.requestId).toBe(REQUEST_ID);
+  });
+
+  it("update clears the nullable pair and ends now at the server's clock", async () => {
+    const { fetch, seen } = stubFetch([json(adminAnnouncementBody())]);
+    await client(fetch).admin.announcements.update(ANN_ID, {
+      link: null,
+      ends_at: null,
+      end_now: true,
+    });
+    expect(seen[0]!.body).toEqual({ link: null, ends_at: null, end_now: true });
+  });
+
+  it("update with nothing to change is refused, and an id that would change the path", () => {
+    const c = client(stubFetch([json({})]).fetch);
+    expect(() => c.admin.announcements.update(ANN_ID, {})).toThrow(/update needs one of/);
+    expect(() =>
+      c.admin.announcements.update("../announcements", { message: "x" }),
+    ).toThrow(MatterWaveConfigError);
+    expect(() => c.admin.announcements.delete("")).toThrow(MatterWaveConfigError);
+  });
+
+  it("a missing id is NotFoundError", async () => {
+    const { fetch } = stubFetch([json({ detail: "No such announcement." }, 404)]);
+    const error = await client(fetch).admin.announcements
+      .update("ann-other", { message: "x" })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NotFoundError);
+    expect((error as NotFoundError).message).toBe("No such announcement.");
+  });
+
+  it("deletes", async () => {
+    const { fetch, seen } = stubFetch([new Response(null, { status: 204, headers: { "X-Request-Id": REQUEST_ID } })]);
+    await expect(client(fetch).admin.announcements.delete(ANN_ID)).resolves.toBeUndefined();
+    expect(seen[0]!.method).toBe("DELETE");
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/admin/announcements/${ANN_ID}`);
   });
 });
 

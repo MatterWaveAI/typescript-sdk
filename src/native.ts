@@ -1,8 +1,8 @@
 /**
  * The native API clients: `keys`, `usage`, `webhooks`, `attachments`,
- * `library`, `shares`, `budget`, `notifications`, `announcements` and
- * `entitlements`, one method per route on top of the client's request and
- * retry loop.
+ * `library`, `shares`, `budget`, `notifications`, `announcements`,
+ * `entitlements` and the `admin` namespace, one method per route on top of
+ * the client's request and retry loop.
  *
  *     const key = await client.keys.create({ name: "ci", expires_in_days: 90 });
  *     const csv = await client.usage.exportCsv({ period: "2026-10" });
@@ -16,7 +16,8 @@
  * `usage:read` key sees only their own row. Notifications, announcements
  * and entitlements are the caller's own view, the way `/api/me` is: a
  * notification id belonging to someone else is a 404, indistinguishable
- * from a missing one.
+ * from a missing one. The `admin` namespace is the exception to all of it:
+ * the operator's own routes, the platform `admin` role, not an API key's.
  */
 
 import { MatterWaveConfigError } from "./client.js";
@@ -24,6 +25,8 @@ import type { MatterWave, Prepared, RequestOptions } from "./client.js";
 import type { Conversation, SearchResults } from "./conversation-types.js";
 import { query, segment } from "./conversations.js";
 import type {
+  AdminAnnouncement,
+  AdminAnnouncementList,
   AnnouncementList,
   ApiKey,
   ApiKeyList,
@@ -32,6 +35,7 @@ import type {
   AttachmentLimits,
   Budget,
   ConversationTags,
+  CreateAnnouncementParams,
   CreateKeyParams,
   CreateShareParams,
   CreateWebhookParams,
@@ -54,6 +58,7 @@ import type {
   ShareList,
   SharedConversation,
   Tag,
+  UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
   UpdateWebhookParams,
@@ -482,11 +487,140 @@ export class Notifications extends Resource {
 
 // --- announcements -------------------------------------------------------------
 
-/** The operator's banners: every signed-in principal reads the ones inside their window, most severe first. A critical one is never dismissible. */
+/** The operator's banners: every signed-in principal reads the ones inside their window, most severe first. A critical one is never dismissible. The write side is one namespace up, `client.admin.announcements`. */
 export class Announcements extends Resource {
   /** The announcements active now, most severe first; an empty list where there is no store behind them. */
   list(options: RequestOptions = {}): Promise<WithRequestId<AnnouncementList>> {
     return this.call("GET", "/api/announcements", undefined, options);
+  }
+}
+
+// --- admin: announcements --------------------------------------------------------
+
+const ADMIN_SEVERITIES: readonly string[] = ["info", "warning", "critical"];
+const ADMIN_MAX_MESSAGE_LENGTH = 500;
+const ADMIN_MAX_LINK_LENGTH = 2000;
+
+/** The route's own check (`valid_link` in api/matterwave/announcements.py): an absolute http(s) URL or a path on this site; never `//host`, which a browser resolves to another origin; no other scheme; no whitespace or control character anywhere. */
+function validAnnouncementLink(link: string): boolean {
+  for (const ch of link) {
+    const code = ch.codePointAt(0)!;
+    if (code < 0x20 || code === 0x7f || /\s/u.test(ch)) return false;
+  }
+  if (link.startsWith("/")) return !link.startsWith("//") && !link.includes("\\");
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return false;
+  }
+  return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "";
+}
+
+function checkAnnouncementMessage(message: string): void {
+  if (!message.trim()) throw new MatterWaveConfigError("The message is empty.");
+  if (message.length > ADMIN_MAX_MESSAGE_LENGTH) {
+    throw new MatterWaveConfigError(`message must be ${ADMIN_MAX_MESSAGE_LENGTH} characters or fewer`);
+  }
+}
+
+function checkAnnouncementSeverity(severity: string): void {
+  if (!ADMIN_SEVERITIES.includes(severity)) {
+    throw new MatterWaveConfigError(`severity must be one of ${ADMIN_SEVERITIES.join(", ")}, got ${severity}`);
+  }
+}
+
+/** The route's `_clean_link`: trimmed, empty is no link, and what is left has to be a link. */
+function cleanAnnouncementLink(link: string | null | undefined): string | null {
+  if (link === null || link === undefined) return null;
+  const trimmed = link.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > ADMIN_MAX_LINK_LENGTH) {
+    throw new MatterWaveConfigError(`link must be ${ADMIN_MAX_LINK_LENGTH} characters or fewer`);
+  }
+  if (!validAnnouncementLink(trimmed)) {
+    throw new MatterWaveConfigError("A link is an http(s) URL or a path on this site.");
+  }
+  return trimmed;
+}
+
+function announcementPath(announcementId: string): string {
+  return `/api/admin/announcements/${segment("announcementId", announcementId)}`;
+}
+
+/**
+ * The operator's announcement management: `/api/admin/announcements`, the
+ * rows the admin console's Announcements tab manages -- every column and
+ * every window, not just the ones active now, each write one audit row on
+ * the platform's side. These are operator routes: they mirror the admin
+ * console and need the platform `admin` role, so an API key with user
+ * scopes cannot call them. The signed-in read side stays
+ * `client.announcements.list()`.
+ */
+export class AdminAnnouncements extends Resource {
+  /** Every announcement, newest first, each with its `state`: `active`, `scheduled` or `ended`. */
+  list(options: RequestOptions = {}): Promise<WithRequestId<AdminAnnouncementList>> {
+    return this.call("GET", "/api/admin/announcements", undefined, options);
+  }
+
+  /**
+   * Post one. A critical announcement is never dismissible, whatever was
+   * asked; a window whose `ends_at` is not after its `starts_at` is a 422.
+   */
+  create(
+    params: CreateAnnouncementParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<AdminAnnouncement>> {
+    checkAnnouncementMessage(params.message);
+    checkAnnouncementSeverity(params.severity ?? "info");
+    const body: Record<string, unknown> = {
+      message: params.message,
+      severity: params.severity ?? "info",
+      dismissible: params.dismissible ?? true,
+    };
+    const link = cleanAnnouncementLink(params.link);
+    if (link !== null) body.link = link;
+    if (params.starts_at != null) body.starts_at = params.starts_at;
+    if (params.ends_at != null) body.ends_at = params.ends_at;
+    return this.call("POST", "/api/admin/announcements", body, options);
+  }
+
+  /**
+   * Change what was given; the rest stays. `link: null` clears the link
+   * and `ends_at: null` makes the window open-ended for good;
+   * `end_now: true` ends it at the server's clock instead, which is what
+   * the console's "End now" button does. `NotFoundError` for an id that
+   * is not one.
+   */
+  update(
+    announcementId: string,
+    params: UpdateAnnouncementParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<AdminAnnouncement>> {
+    const body = given({ ...params, end_now: undefined }) as Record<string, unknown>;
+    if (typeof body.message === "string") checkAnnouncementMessage(body.message);
+    if (typeof body.severity === "string") checkAnnouncementSeverity(body.severity);
+    if ("link" in body) body.link = cleanAnnouncementLink(params.link);
+    if (params.end_now) body.end_now = true;
+    if (Object.keys(body).length === 0) {
+      throw new MatterWaveConfigError(
+        "update needs one of message, severity, link, starts_at, ends_at, dismissible, end_now",
+      );
+    }
+    return this.call("PATCH", announcementPath(announcementId), body, options);
+  }
+
+  /** Remove it for good. `NotFoundError` when there is no such id. */
+  delete(announcementId: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", announcementPath(announcementId), options);
+  }
+}
+
+/** `/api/admin/*`: the operator surface, the routes the admin console speaks. Everything under it needs the platform `admin` role; an API key with user scopes cannot call any of it. */
+export class Admin {
+  readonly announcements: AdminAnnouncements;
+  constructor(client: MatterWave) {
+    this.announcements = new AdminAnnouncements(client);
   }
 }
 

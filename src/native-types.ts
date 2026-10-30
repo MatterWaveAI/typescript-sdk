@@ -453,6 +453,69 @@ export interface AnnouncementList {
   data: Announcement[];
 }
 
+// --- admin announcements ------------------------------------------------------
+
+/**
+ * One announcement as the admin tab's table sees it (`GET
+ * /api/admin/announcements`): every column -- who wrote it and who last
+ * changed it -- plus `state`, where the window stands now: `active`,
+ * `scheduled` or `ended`. These are the operator routes: they need the
+ * platform `admin` role, and an API key with user scopes cannot call them.
+ */
+export interface AdminAnnouncement {
+  id: string;
+  message: string;
+  severity: AnnouncementSeverity | (string & {});
+  link: string | null;
+  starts_at: string;
+  /** Null is open-ended. */
+  ends_at: string | null;
+  /** Never true for a critical one; the store refuses the row otherwise. */
+  dismissible: boolean;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+  state: string;
+}
+
+/** `GET /api/admin/announcements`: every announcement, newest first. */
+export interface AdminAnnouncementList {
+  data: AdminAnnouncement[];
+}
+
+/** The body of `admin.announcements.create`. Omitted fields take the server's defaults. */
+export interface CreateAnnouncementParams {
+  /** Plain text, at most 500 characters once trimmed. */
+  message: string;
+  /** Defaults to `info`. */
+  severity?: AnnouncementSeverity;
+  /** An absolute http(s) URL or a path on this site; 2000 characters at most. */
+  link?: string | null;
+  /** ISO timestamp; the server's clock when omitted. */
+  starts_at?: string | null;
+  /** ISO timestamp; null (the default) is open-ended. Must be after `starts_at`. */
+  ends_at?: string | null;
+  /** Defaults to true; forced false for a critical one. */
+  dismissible?: boolean;
+}
+
+/**
+ * The body of `admin.announcements.update`: only the fields given change.
+ * `link: null` clears the link and `ends_at: null` makes the window
+ * open-ended for good; on the rest, null is not a value the server reads.
+ */
+export interface UpdateAnnouncementParams {
+  message?: string;
+  severity?: AnnouncementSeverity;
+  link?: string | null;
+  starts_at?: string;
+  ends_at?: string | null;
+  dismissible?: boolean;
+  /** End it at the server's clock rather than a caller's `ends_at`. */
+  end_now?: boolean;
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

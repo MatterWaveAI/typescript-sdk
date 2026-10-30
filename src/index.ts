@@ -12,8 +12,10 @@
  * the key to use. `client.keys`, `client.usage`, `client.webhooks`,
  * `client.attachments`, `client.library`, `client.shares`, `client.budget`,
  * `client.notifications`, `client.announcements` and `client.entitlements`
- * are the app's native routes for the same, and `client.mcp` speaks the
- * `/mcp` JSON-RPC endpoint (list tools, call one, send a message).
+ * are the app's native routes for the same, `client.admin` is the operator
+ * surface (the platform `admin` role, not an API key's), and `client.mcp`
+ * speaks the `/mcp` JSON-RPC endpoint (list tools, call one, send a
+ * message).
  */
 
 export {
@@ -37,8 +39,10 @@ export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
-export { Announcements, Attachments, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+export { Admin, AdminAnnouncements, Announcements, Attachments, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
+  AdminAnnouncement,
+  AdminAnnouncementList,
   Announcement,
   AnnouncementList,
   AnnouncementSeverity,
@@ -49,6 +53,7 @@ export type {
   AttachmentLimits,
   Budget,
   ConversationTags,
+  CreateAnnouncementParams,
   CreateKeyParams,
   CreateShareParams,
   CreateWebhookParams,
@@ -77,6 +82,7 @@ export type {
   ShareList,
   SharedConversation,
   Tag,
+  UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
   UpdateWebhookParams,
