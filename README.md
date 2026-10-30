@@ -256,6 +256,44 @@ const signedIn = new MatterWave({ apiKey: token.access_token });
 own. The SDK never stores the token: keep it in the editor's secret storage or
 the OS keyring.
 
+## Connect your editor to MatterWave
+
+`/mcp` on the deployment's origin is an MCP server: the conversation API in a
+second wire format, over Streamable HTTP, with the same tenancy, scopes, plan
+gates and budget as everything else the key reaches. Claude Desktop, VS Code /
+GitHub Copilot and Cursor take the same three facts -- the URL
+`https://your-matterwave.example/mcp`, transport `http`, and an API key in an
+`Authorization: Bearer` header:
+
+```json
+{
+  "mcpServers": {
+    "matterwave": {
+      "type": "http",
+      "url": "https://your-matterwave.example/mcp",
+      "headers": { "Authorization": "Bearer mw_..." }
+    }
+  }
+}
+```
+
+(VS Code reads `servers` from `.vscode/mcp.json`; Cursor reads `mcpServers`
+with just `url` and `headers`.) The six tools -- `list_conversations`,
+`get_conversation`, `search_conversations`, `list_models`,
+`create_conversation`, `send_message` -- are filtered by the key's scopes, so
+a `chat:read`-only key is never offered a write. There is no OAuth: an API key
+as bearer is the only scheme, a known gap until the identity provider can bind
+a token to this resource. Get a key from Settings > API keys or by device login
+(above), store it like a secret, and revoke it there when the editor moves on.
+The full walk-through -- every client's config, the tool table, errors, the
+audit trail -- is in [docs/mcp.md](docs/mcp.md), and `examples/mcp-via-sdk.ts`
+drives the same endpoint through the wrapper:
+
+```ts
+const answer = await client.mcp.sendMessage("<conversation-id>", "Draft a three-line agenda.");
+console.log(answer.text);
+```
+
 ## Development
 
 ```

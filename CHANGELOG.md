@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- "Connect your editor to MatterWave": a README section and a `docs/mcp.md`
+  walk-through -- getting a key (Settings > API keys or device login),
+  copy-paste MCP config for Claude Desktop, VS Code / Copilot and Cursor,
+  the six tools and their scopes, the errors the two refusal shapes arrive
+  as, the no-OAuth limitation and the security notes. `examples/mcp-via-sdk.ts`
+  drives `client.mcp` end to end (list tools, create, send, search). The old
+  `examples/mcp-client.ts`, built on the official `@modelcontextprotocol/sdk`,
+  is removed: one example per SDK.
+
 ## [0.4.0] - 2026-10-30
 
 ### Added
