@@ -98,6 +98,8 @@ export class PermissionDeniedError extends APIError {}
 export class NotFoundError extends APIError {}
 /** 409: valid, but the state does not allow it, such as a compaction with nothing to fold yet. */
 export class ConflictError extends APIError {}
+/** 422: the body failed validation, FastAPI's own refusal shape. The per-field messages arrive as a list of `detail` objects and are joined into one line on the error; `body` keeps the whole response. */
+export class UnprocessableEntityError extends APIError {}
 /**
  * 429: the per-key window, or the organisation's monthly budget. `code`
  * tells them apart: `rate_limit_exceeded` clears when `retryAfter` seconds
@@ -215,6 +217,7 @@ export function errorClassFor(status: number): new (message: string, init: APIEr
   if (status === 403) return PermissionDeniedError;
   if (status === 404) return NotFoundError;
   if (status === 409) return ConflictError;
+  if (status === 422) return UnprocessableEntityError;
   if (status === 429) return RateLimitError;
   if (status >= 500) return ServerError;
   return APIError;

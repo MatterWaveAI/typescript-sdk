@@ -181,6 +181,7 @@ export {
   PermissionDeniedError,
   RateLimitError,
   ServerError,
+  UnprocessableEntityError,
   WebhookVerificationError,
 } from "./errors.js";
 export type { APIErrorInit, RateLimit } from "./errors.js";
