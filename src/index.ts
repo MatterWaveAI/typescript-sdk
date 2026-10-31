@@ -35,7 +35,7 @@ export {
   setSleep,
 } from "./client.js";
 export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
-export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER } from "./conversations.js";
+export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";

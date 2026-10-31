@@ -109,6 +109,10 @@ export interface ClientOptions {
   defaultHeaders?: Record<string, string>;
   /** A replacement `fetch`: a mock in tests, a wrapped one in an app. */
   fetch?: Fetch;
+  /** The request about to go out, for logging: method and path, once per attempt (a retry fires it again). A hook that throws fails the call. */
+  onRequest?: (request: { method: string; path: string }) => void;
+  /** The response that came back, success or refusal, once per attempt. A hook that throws fails the call. */
+  onResponse?: (response: RawResponse) => void;
 }
 
 export interface RequestOptions {
@@ -362,6 +366,13 @@ export class Stream implements AsyncIterable<WithRequestId<ChatCompletionChunk>>
     }
   }
 
+  /** Drain the stream and return the whole answer: every chunk's text joined. The accumulation helper -- iterate for the pieces, call this for the whole. */
+  async accumulate(): Promise<string> {
+    let text = "";
+    for await (const piece of this.text()) text += piece;
+    return text;
+  }
+
   abort(): void {
     this.controller.abort();
   }
@@ -553,6 +564,8 @@ export class MatterWave {
   private readonly maxRetries: number;
   private readonly defaultHeaders: Record<string, string>;
   private readonly fetchImpl: Fetch;
+  private readonly onRequest: ((request: { method: string; path: string }) => void) | null;
+  private readonly onResponse: ((response: RawResponse) => void) | null;
 
   constructor(options: ClientOptions = {}) {
     this.apiKey = options.apiKey ?? envValue(API_KEY_ENV);
@@ -564,6 +577,8 @@ export class MatterWave {
     // Bound at construction: a bare `fetch` reference loses its `this` in
     // some runtimes, and an injected one is whatever the caller gave.
     this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
+    this.onRequest = options.onRequest ?? null;
+    this.onResponse = options.onResponse ?? null;
     this.chat = new Chat(this);
     this.models = new Models(this);
     this.embeddings = new Embeddings(this);
@@ -689,6 +704,7 @@ export class MatterWave {
           ? prepared.body
           : JSON.stringify(prepared.body);
     for (let attempt = 0; ; attempt += 1) {
+      if (this.onRequest) this.onRequest({ method: prepared.method, path: prepared.path });
       const controller = new AbortController();
       const stop = linkSignals(controller, options.signal, timeoutMs);
       let response: Response;
@@ -718,11 +734,13 @@ export class MatterWave {
         // outlives this call, and a long answer must not be cut by it.
         stop.clear();
         this._lastResponse = new RawResponse(response);
+        if (this.onResponse) this.onResponse(this._lastResponse);
         return { response, controller };
       }
       const raw = await response.text();
       stop.clear();
       this._lastResponse = new RawResponse(response);
+      if (this.onResponse) this.onResponse(this._lastResponse);
       if (attempt < maxRetries && shouldRetry(response, raw)) {
         await sleeper(backoffMs(attempt, retryAfterSeconds(response)));
         continue;

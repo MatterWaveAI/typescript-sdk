@@ -60,6 +60,19 @@ const DEVICE_ERRORS = new Set(["authorization_pending", "slow_down", "expired_to
 // RFC 8628 section 3.5: each `slow_down` adds five seconds to the interval, for good.
 const SLOW_DOWN_STEP_S = 5;
 
+/**
+ * Every item of every page: the generic item-level paginator over any
+ * cursor-paginated list the API returns (`{ data, next_cursor }`). `pages`
+ * is the page-level walk; this is the one the caller usually wants.
+ */
+export async function* itemsOf<Page extends { data: readonly unknown[] }>(
+  pages: AsyncIterable<Page>,
+): AsyncGenerator<Page["data"][number]> {
+  for await (const page of pages) {
+    for (const item of page.data as Page["data"][number][]) yield item;
+  }
+}
+
 /** @internal An id for a path segment; one that would change the path it is spliced into is a bug at the call site. */
 export function segment(name: string, value: string): string {
   if (!value || value.includes("/") || value === "." || value === "..") {
@@ -205,6 +218,13 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
     }
   }
 
+  /** Drain the turn and return the whole answer: every delta joined. The accumulation helper -- iterate for the frames, call this for the whole. */
+  async accumulate(): Promise<string> {
+    let text = "";
+    for await (const piece of this.text()) text += piece;
+    return text;
+  }
+
   abort(): void {
     this.controller.abort();
   }
@@ -246,6 +266,14 @@ export class Conversations {
       yield page;
       cursor = page.next_cursor ?? undefined;
     } while (cursor !== undefined);
+  }
+
+  /** Every conversation of every page, one at a time: the item-level paginator, walking `pages` so each page is fetched only as the previous one runs dry. */
+  items(
+    params: Omit<ListConversationsParams, "cursor"> = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Conversation> {
+    return itemsOf(this.pages(params, options));
   }
 
   /** `GET /api/conversations/search`: full text over the caller's own messages. */
