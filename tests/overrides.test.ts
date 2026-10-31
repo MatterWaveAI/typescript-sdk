@@ -98,6 +98,7 @@ describe("per-call maxRetries", () => {
     const { restore } = recordSleeps();
     try {
       const stream = await client(fetch, { maxRetries: 0 }).conversations.send("c-1", { content: "Hi" }, { maxRetries: 2 });
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _ of stream) {
         // read to the end
       }
