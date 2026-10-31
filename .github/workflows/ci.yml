@@ -1,10 +1,20 @@
 # CI on every push and PR: the same gates the publish job runs before a tag
 # may ship. Publishing itself stays in publish-npm.yml, which runs on tags only.
+#
+# Run it by hand with `openapi_source` (a URL of the app's exported
+# docs/developers/openapi.json) to test this client against that API: the
+# snapshot in tests/openapi.json is refreshed from it before the checks.
 name: ci
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      openapi_source:
+        description: "URL of the app's openapi.json to test against (blank: the committed snapshot)"
+        required: false
+        default: ""
 
 jobs:
   check:
@@ -17,6 +27,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Refresh the OpenAPI snapshot from the given source
+        if: github.event_name == 'workflow_dispatch' && inputs.openapi_source != ''
+        env:
+          OPENAPI_SOURCE: ${{ inputs.openapi_source }}
+        run: |
+          pnpm openapi:refresh "$OPENAPI_SOURCE"
+          git diff --stat tests/openapi.json
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm build

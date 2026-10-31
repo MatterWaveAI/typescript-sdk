@@ -85,6 +85,10 @@ export interface ChatCompletionRequest {
   max_completion_tokens?: number | null;
   temperature?: number | null;
   top_p?: number | null;
+  /** -2 to 2, relayed to the model as OpenAI defines it. */
+  frequency_penalty?: number | null;
+  /** -2 to 2, relayed to the model as OpenAI defines it. */
+  presence_penalty?: number | null;
   stop?: string | string[] | null;
   n?: number | null;
   user?: string | null;
@@ -110,6 +114,8 @@ export const CHAT_COMPLETION_REQUEST_FIELDS = [
   "max_completion_tokens",
   "temperature",
   "top_p",
+  "frequency_penalty",
+  "presence_penalty",
   "stop",
   "n",
   "user",

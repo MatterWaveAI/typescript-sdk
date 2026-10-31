@@ -6,7 +6,7 @@
  * is `event: <name>` and one `data:` line of JSON, with `id:` on the frames a
  * reconnect can resume after. A turn reads, in order:
  *
- *     (compaction | notice)?  message  title?  (part_start delta* part_end)*  context?  done
+ *     compacting?  (compaction | notice)?  message  title?  (part_start delta* part_end)*  context?  done
  *
  * `done` carries the saved assistant message; `error` and `moderation_block`
  * end a turn instead. An event this client does not know arrives as an
@@ -82,6 +82,17 @@ export interface ModerationBlockFrame extends FrameBase {
   request_id: string | null;
 }
 
+/**
+ * The server is folding earlier turns into a summary before this one is
+ * sent, so the answer starts later than usual: a client restarts its wait
+ * for the first token here. `detail` is the sentence to show while it
+ * waits. `compaction` or `notice` follows.
+ */
+export interface CompactingFrame extends FrameBase {
+  event: "compacting";
+  detail: string;
+}
+
 /** Earlier messages were folded into `message`, a `system` message with one `summary` part. */
 export interface CompactionFrame extends FrameBase {
   event: "compaction";
@@ -131,6 +142,7 @@ export type ConversationFrame =
   | DoneFrame
   | ErrorFrame
   | ModerationBlockFrame
+  | CompactingFrame
   | CompactionFrame
   | ContextFrame
   | NoticeFrame
@@ -150,6 +162,7 @@ export const CONVERSATION_EVENTS = [
   "done",
   "error",
   "moderation_block",
+  "compacting",
   "compaction",
   "context",
   "notice",
@@ -218,6 +231,8 @@ export function frameFromEvent(event: string, data: unknown, id: string | null =
         code: optStr(d.code),
         request_id: optStr(d.request_id),
       };
+    case "compacting":
+      return { event, id, detail: String(d.detail ?? "") };
     case "compaction":
       return {
         event,

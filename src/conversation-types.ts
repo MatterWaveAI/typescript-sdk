@@ -269,6 +269,8 @@ export interface Me {
   org_name: string | null;
   org_role: string | null;
   state?: string | null;
+  /** The org's "local agent tools allowed" setting: whether a client may offer its agent mode, whose tools run on the user's machine. Null or absent when the server did not say. */
+  local_agent_tools?: boolean | null;
 }
 
 /**
@@ -392,6 +394,8 @@ export interface AppModel {
   partner: boolean;
   research_preview: boolean;
   supports_vision?: boolean | null;
+  /** Whether the model can call tools, so a client can grey out its agent mode for one that cannot. Null or absent when the server did not say. */
+  supports_tools?: boolean | null;
   /** Null when the gateway did not say, rather than a guess. */
   context_window: number | null;
   multiplier: number;

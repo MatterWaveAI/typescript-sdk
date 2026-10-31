@@ -34,6 +34,19 @@ describe("what each operation sends", () => {
     expect(JSON.parse(JSON.stringify(completion))).not.toHaveProperty("requestId");
   });
 
+  it("sends the penalties when given and leaves them out when not", async () => {
+    const { fetch, seen } = stubFetch([json(completionBody()), json(completionBody())]);
+    const c = client(fetch);
+    await c.chat.completions.create({
+      messages: [{ role: "user", content: "hi" }],
+      frequency_penalty: 0.5,
+      presence_penalty: -0.25,
+    });
+    await c.chat.completions.create({ messages: [{ role: "user", content: "hi" }], frequency_penalty: 1 });
+    expect(seen[0]!.body).toMatchObject({ frequency_penalty: 0.5, presence_penalty: -0.25 });
+    expect(seen[1]!.body).toEqual({ messages: [{ role: "user", content: "hi" }], frequency_penalty: 1 });
+  });
+
   it("defaultHeaders replace the client's own but not the operation's", async () => {
     // A client built on this one names itself: its User-Agent has to reach
     // the wire. The bearer still comes last.

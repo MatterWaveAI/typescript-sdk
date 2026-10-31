@@ -109,6 +109,41 @@ for (const call of completion.choices[0].message.tool_calls ?? []) {
 }
 ```
 
+To continue the loop, send the assistant message back with one `tool` message
+per call; `toolMessage(callId, content)` builds the second:
+
+```ts
+import { toolMessage } from "@matterwave/sdk";
+
+const assistant = completion.choices[0].message;
+messages.push(assistant);
+for (const call of assistant.tool_calls ?? []) messages.push(toolMessage(call.id, await run(call))); // run(): your code
+const next = await client.chat.completions.create({ messages, tools });
+```
+
+On a stream, `await stream.finalMessage()` drains it and returns the same
+message, each tool call put back together from its `delta.tool_calls`
+fragments (calls at different indexes may interleave).
+`ChatCompletionAccumulator` does the same one chunk at a time, for a client
+that renders the text as it arrives and also wants the finish reason and usage:
+
+```ts
+import { ChatCompletionAccumulator } from "@matterwave/sdk";
+
+const acc = new ChatCompletionAccumulator();
+for await (const chunk of await client.chat.completions.create({ messages, tools, stream: true })) {
+  process.stdout.write(chunk.choices[0]?.delta.content ?? "");
+  acc.add(chunk);
+}
+const message = acc.message(); // and acc.finishReason, acc.usage
+```
+
+`frequency_penalty` and `presence_penalty` (-2 to 2) are relayed as OpenAI
+defines them. Before offering an agent mode, a client reads two flags: the
+model row's `supports_tools` (`client.appModels()`) and the org's
+`local_agent_tools` (`client.me()`). Each is absent or null when the server
+did not say.
+
 `client.embeddings.create({ input: ["one", "two"] })` returns one embedding per
 input from the deployment's embedding model; `(await client.index()).capabilities`
 says whether one is configured.
@@ -155,7 +190,9 @@ now (a `ConflictError` when there is nothing to fold yet). `client.me()` says
 who the key acts as.
 
 The stream is named server-sent events, read into frames discriminated on
-`event`: `compaction`, `context`, `message` (the user turn as saved), `title`,
+`event`: `compacting` (first, when the server is folding earlier turns before
+this one, so the first token is later than usual), `compaction`, `context`,
+`message` (the user turn as saved), `title`,
 `part_start` / `delta` / `part_end` per part (text, reasoning, tool call, tool
 result), `notice`, and one terminal frame: `done` (the assistant message),
 `error` or `moderation_block`. An event the client does not know arrives as
@@ -301,8 +338,9 @@ npm install
 npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-`tests/openapi-contract.test.ts` checks this client against
-`docs/developers/openapi.json` at the repo root, so a new operation on the API
+`tests/openapi-contract.test.ts` checks this client against the app's
+exported OpenAPI document, `docs/developers/openapi.json` in the app repo,
+through the snapshot in `tests/openapi.json`, so a new operation on the API
 and a new method here have to land together. That document is the `/v1`
 contract; the conversation, device-login and native routes are listed apart in
 `APP_OPERATIONS` and checked against it only where it names their paths.
@@ -311,3 +349,19 @@ routers in `api/matterwave`, when they are beside the SDK. The
 conversation stream's frames are the exception: the document lists them under
 `x-sse-events`, and `CONVERSATION_EVENTS` is held to that list, event by event
 and field by field.
+
+### Refreshing the OpenAPI snapshot
+
+`scripts/refresh-openapi.mjs` (`pnpm openapi:refresh`) copies the app's export
+over `tests/openapi.json`, from a path or an http(s) URL, after checking it is
+the export (an OpenAPI document with `paths` and `x-sse-events`). `--check`
+writes nothing and exits 1 when the snapshot is behind:
+
+```
+pnpm openapi:refresh ../matterwave-app/docs/developers/openapi.json
+pnpm openapi:refresh --check https://<host>/<path>/openapi.json
+```
+
+In CI, run the `ci` workflow by hand (`workflow_dispatch`) with an
+`openapi_source` URL: it refreshes the snapshot from it before the checks, so
+the run says whether this client still matches that API.

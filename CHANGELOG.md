@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `frequency_penalty` and `presence_penalty` on `chat.completions.create`,
+  relayed to the model as OpenAI defines them (-2 to 2), and in
+  `CHAT_COMPLETION_REQUEST_FIELDS`.
+- `CompactingFrame` (exported) and `"compacting"` in `CONVERSATION_EVENTS`:
+  the conversation stream's event sent first on a turn that folds earlier
+  messages before it is answered, so a client can restart its wait for the
+  first token. Not terminal; `compaction` or `notice` follows.
+- `stream.finalMessage()` and `ChatCompletionAccumulator`: a stream's text
+  and its tool calls, each reassembled from its `delta.tool_calls`
+  fragments, as an `AssistantMessage`; the accumulator also keeps
+  `finishReason`, `usage` and `model`.
+- `toolMessage(callId, content)`: the `role: "tool"` message answering a
+  call, for the next request's `messages`.
+- `AppModel.supports_tools` (`GET /api/models`) and `Me.local_agent_tools`
+  (`GET /api/me`): whether a model can call tools and whether the org lets
+  clients run local agent tools. Absent or null when the server does not
+  send them.
+- `scripts/refresh-openapi.mjs` (`pnpm openapi:refresh <path-or-url>`)
+  refreshes `tests/openapi.json` from the app's export (`--check` exits 1
+  when it is behind), and the `ci` workflow takes an `openapi_source` URL
+  on a manual run to test against it.
+
+### Changed
+
+- `tests/openapi.json` refreshed from the app's export: the two penalty
+  fields on `ChatCompletionRequest` and the `compacting` stream event.
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

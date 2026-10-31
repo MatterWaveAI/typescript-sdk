@@ -8,6 +8,7 @@ import {
   NotFoundError,
   RESUME_PLACEHOLDER,
   frameFromEvent,
+  isTerminal,
   summaryOf,
   type ConversationFrame,
 } from "../src/index.js";
@@ -182,6 +183,21 @@ describe("the conversation stream", () => {
     // The server's notice is `{detail, code}`, the same keys as an error frame.
     expect(frames[2]).toMatchObject({ event: "notice", detail: "Older messages may be cut.", code: "compaction" });
     expect(frames[3]).toMatchObject({ event: "unknown", name: "sparkles", data: { n: 1 } });
+  });
+
+  it("reads compacting first, as a frame that does not end the turn", async () => {
+    // The server sends `compacting` before it decodes the summary, so a
+    // client can restart its first-token wait; the turn goes on after it.
+    const body =
+      frame("compacting", { detail: "Summarising earlier messages." }) +
+      frame("notice", { detail: "Older messages may be cut.", code: "compaction" }) +
+      frame("message", USER) +
+      frame("done", ASSISTANT);
+    const { fetch } = stubFetch([sse([body])]);
+    const frames = await collect(await client(fetch).conversations.send(CONV, { content: "Hi there" }));
+    expect(frames[0]).toEqual({ event: "compacting", id: null, detail: "Summarising earlier messages." });
+    expect(isTerminal(frames[0]!)).toBe(false);
+    expect(frames[frames.length - 1]!.event).toBe("done");
   });
 
   it.each([

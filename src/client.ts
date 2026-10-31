@@ -33,8 +33,10 @@ import { Auth, Conversations, Instructions, Messages } from "./conversations.js"
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
+import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
   ApiIndex,
+  AssistantMessage,
   ChatCompletion,
   ChatCompletionChunk,
   ChatCompletionCreateParamsNonStreaming,
@@ -371,6 +373,19 @@ export class Stream implements AsyncIterable<WithRequestId<ChatCompletionChunk>>
     let text = "";
     for await (const piece of this.text()) text += piece;
     return text;
+  }
+
+  /**
+   * Drain the stream and return the assistant message it spelled out: the
+   * text, and each tool call reassembled from its fragments, ready to run
+   * and to send back in the next request's `messages`. For the finish
+   * reason and usage as well, feed the chunks to a
+   * `ChatCompletionAccumulator` yourself.
+   */
+  async finalMessage(): Promise<AssistantMessage> {
+    const accumulator = new ChatCompletionAccumulator();
+    for await (const chunk of this) accumulator.add(chunk);
+    return accumulator.message();
   }
 
   abort(): void {

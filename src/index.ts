@@ -137,6 +137,7 @@ export type {
 } from "./conversation-types.js";
 export { CONVERSATION_EVENTS, frameFromEvent, isTerminal } from "./frames.js";
 export type {
+  CompactingFrame,
   CompactionFrame,
   ContextFrame,
   ConversationFrame,
@@ -151,6 +152,7 @@ export type {
   TitleFrame,
   UnknownFrame,
 } from "./frames.js";
+export { ChatCompletionAccumulator, toolMessage } from "./accumulate.js";
 export { sseDataFrames, sseEvents } from "./sse.js";
 export type { SSEEvent } from "./sse.js";
 export {
