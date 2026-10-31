@@ -25,6 +25,7 @@ export {
   Embeddings,
   Models,
   Stream,
+  RawResponse,
   MatterWaveConfigError,
   VERSION,
   API_KEY_ENV,

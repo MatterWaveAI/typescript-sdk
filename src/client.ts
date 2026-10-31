@@ -64,6 +64,34 @@ export const BACKOFF_CAP_MS = 8_000;
 // A 429 the server says is the organisation's budget, not the window.
 const NON_RETRYABLE_429_CODES = new Set(["insufficient_quota"]);
 
+/**
+ * The last HTTP response the client received, whatever became of it:
+ * status and headers as they travelled, with the pieces the parsed models
+ * leave behind -- the request id, the retry delay, the rate-limit window.
+ * `client.lastResponse` holds it, so `X-RateLimit-*` and the ids are
+ * reachable on a refusal as well as on a success.
+ */
+export class RawResponse {
+  readonly status: number;
+  readonly headers: Headers;
+  readonly requestId: string | null;
+  readonly retryAfter: number | null;
+  readonly rateLimit: RateLimit | null;
+
+  constructor(response: Response) {
+    this.status = response.status;
+    this.headers = response.headers;
+    this.requestId = response.headers.get(REQUEST_ID_HEADER);
+    this.retryAfter = retryAfterSeconds(response);
+    this.rateLimit = rateLimitOf(response);
+  }
+
+  /** One header's value, whichever case the server sent the name in. */
+  header(name: string): string | null {
+    return this.headers.get(name);
+  }
+}
+
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
 export interface ClientOptions {
@@ -470,6 +498,8 @@ export class MatterWave {
   readonly admin: Admin;
   /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
   readonly mcp: Mcp;
+  /** The last HTTP response received, success or refusal; null until something has been sent. */
+  private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
@@ -506,6 +536,11 @@ export class MatterWave {
     this.entitlements = new EntitlementsClient(this);
     this.admin = new Admin(this);
     this.mcp = new Mcp(this);
+  }
+
+  /** The last HTTP response received, success or refusal; null until something has been sent. */
+  get lastResponse(): RawResponse | null {
+    return this._lastResponse;
   }
 
   /** `GET /v1`: the version, the endpoints and the stability promise. No key needed. */
@@ -634,10 +669,12 @@ export class MatterWave {
         // The timeout covers the connection phase only: a streamed body
         // outlives this call, and a long answer must not be cut by it.
         stop.clear();
+        this._lastResponse = new RawResponse(response);
         return { response, controller };
       }
       const raw = await response.text();
       stop.clear();
+      this._lastResponse = new RawResponse(response);
       if (attempt < maxRetries && shouldRetry(response, raw)) {
         await sleeper(backoffMs(attempt, retryAfterSeconds(response)));
         continue;
