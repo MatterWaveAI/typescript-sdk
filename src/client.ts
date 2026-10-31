@@ -86,6 +86,14 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Headers for this one call. */
   headers?: Record<string, string>;
+  /**
+   * Per attempt, for this one call, overriding the client's `timeoutMs`:
+   * a single long call can take minutes without holding the whole client
+   * at its pace.
+   */
+  timeoutMs?: number;
+  /** Retries after the first attempt, for this one call, overriding the client's `maxRetries`. */
+  maxRetries?: number;
 }
 
 /** @internal One operation, ready for `send`. */
@@ -585,6 +593,10 @@ export class MatterWave {
   ): Promise<{ response: Response; controller: AbortController }> {
     const headers = this.headersFor(prepared, options.headers);
     const url = this.baseUrl + prepared.path;
+    // The call's own bounds win, then the operation's (an MCP tool that
+    // runs a whole model turn), then the client's defaults.
+    const maxRetries = options.maxRetries ?? this.maxRetries;
+    const timeoutMs = options.timeoutMs ?? prepared.timeoutMs ?? this.timeoutMs;
     // A FormData goes as it is, so fetch writes the multipart boundary; it
     // can be sent again on a retry, unlike a stream.
     const body =
@@ -595,7 +607,7 @@ export class MatterWave {
           : JSON.stringify(prepared.body);
     for (let attempt = 0; ; attempt += 1) {
       const controller = new AbortController();
-      const stop = linkSignals(controller, options.signal, prepared.timeoutMs ?? this.timeoutMs);
+      const stop = linkSignals(controller, options.signal, timeoutMs);
       let response: Response;
       try {
         response = await this.fetchImpl(url, {
@@ -607,7 +619,7 @@ export class MatterWave {
       } catch (cause) {
         stop.clear();
         if (options.signal?.aborted) throw cause;
-        if (attempt >= this.maxRetries) {
+        if (attempt >= maxRetries) {
           throw stop.timedOut
             ? new APITimeoutError(`${prepared.method} ${prepared.path} timed out.`, { cause })
             : new APIConnectionError(
@@ -626,7 +638,7 @@ export class MatterWave {
       }
       const raw = await response.text();
       stop.clear();
-      if (attempt < this.maxRetries && shouldRetry(response, raw)) {
+      if (attempt < maxRetries && shouldRetry(response, raw)) {
         await sleeper(backoffMs(attempt, retryAfterSeconds(response)));
         continue;
       }
