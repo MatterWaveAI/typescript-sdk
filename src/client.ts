@@ -29,7 +29,7 @@ import {
 import type { RateLimit } from "./errors.js";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
-import { Admin, Announcements, Attachments, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import type {
   ApiIndex,
@@ -47,7 +47,7 @@ import type {
 import type { Me } from "./conversation-types.js";
 import type { AppModelList } from "./conversation-types.js";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.4.1";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
 export const BASE_URL_ENV = "MATTERWAVE_BASE_URL";
 const API_PREFIX = "/v1";
@@ -440,6 +440,8 @@ export class MatterWave {
   readonly keys: Keys;
   /** The balance this period, the per-member month, and its CSV. */
   readonly usage: UsageClient;
+  /** The org's audit trail: who changed what, one page or the CSV. */
+  readonly audit: Audit;
   /** Outbound webhook endpoints and their delivery log. */
   readonly webhooks: Webhooks;
   /** Files to attach to a message. */
@@ -485,6 +487,7 @@ export class MatterWave {
     this.auth = new Auth(this);
     this.keys = new Keys(this);
     this.usage = new UsageClient(this);
+    this.audit = new Audit(this);
     this.webhooks = new Webhooks(this);
     this.attachments = new Attachments(this);
     this.library = new LibraryClient(this);

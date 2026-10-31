@@ -24,7 +24,7 @@ import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROUTES = resolve(here, "../../../api/matterwave");
-const NATIVE = ["keys", "usage", "webhooks", "attachments", "library", "shares", "notifications", "announcements", "entitlements"];
+const NATIVE = ["keys", "usage", "audit", "webhooks", "attachments", "library", "shares", "notifications", "announcements", "entitlements"];
 
 const KEY_ID = "key-0001";
 const ENDPOINT_ID = "whe-0001";
@@ -270,6 +270,105 @@ describe("usage", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(APIError);
     expect((error as APIError).message).toBe("period must look like 2026-10");
+  });
+});
+
+// --- audit ----------------------------------------------------------------------
+
+const AUDIT_PAGE = {
+  data: [
+    {
+      id: "aud-0001",
+      occurred_at: "2026-10-30T08:00:00+00:00",
+      actor: "user-1",
+      actor_email: "a@example.test",
+      action: "org.sso.enforced",
+      target: "org-1",
+      detail: { recovery_code: "rec-1" },
+    },
+    {
+      id: "aud-0002",
+      occurred_at: "2026-10-29T08:00:00+00:00",
+      actor: "stripe:evt_1",
+      actor_email: null,
+      action: "org.domain.released",
+      target: null,
+      detail: {},
+    },
+  ],
+  next_cursor: "Y3Vyc29y",
+  actions: ["org.domain.released", "org.sso.enforced"],
+};
+
+const AUDIT_CSV =
+  "occurred_at,actor_email,actor_subject,action,target,detail\r\n" +
+  '2026-10-30T08:00:00+00:00,a@example.test,user-1,org.sso.enforced,org-1,"{""recovery_code"":""rec-1""}"\r\n';
+
+describe("audit", () => {
+  it("lists a page with the filters the route reads", async () => {
+    const { fetch, seen } = stubFetch([json(AUDIT_PAGE)]);
+    const page = await client(fetch).audit.list({
+      event: "org.sso",
+      actor: "a@example.test",
+      cursor: "c1",
+      limit: 25,
+    });
+    expect(seen[0]!.method).toBe("GET");
+    expect(seen[0]!.url).toBe(
+      `${BASE_URL}/api/org/audit?event=org.sso&actor=a%40example.test&cursor=c1&limit=25`,
+    );
+    expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    expect(page.data.map((row) => row.action)).toEqual(["org.sso.enforced", "org.domain.released"]);
+    expect(page.data[1]!.actor_email).toBeNull();
+    expect(page.data[1]!.target).toBeNull();
+    expect(page.data[0]!.detail).toEqual({ recovery_code: "rec-1" });
+    expect(page.next_cursor).toBe("Y3Vyc29y");
+    expect(page.actions).toEqual(["org.domain.released", "org.sso.enforced"]);
+    expect(page.requestId).toBe(REQUEST_ID);
+  });
+
+  it("sends no query when nothing narrows the page", async () => {
+    const { fetch, seen } = stubFetch([json(AUDIT_PAGE)]);
+    await client(fetch).audit.list();
+    expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/audit`);
+  });
+
+  it("refuses a limit out of the route's range before the request", () => {
+    const c = client(stubFetch([json({})]).fetch);
+    expect(() => c.audit.list({ limit: 0 })).toThrow(/limit must be 1 to 200/);
+    expect(() => c.audit.list({ limit: 201 })).toThrow(/limit must be 1 to 200/);
+  });
+
+  it("exports the CSV as the text the server streams", async () => {
+    const { fetch, seen } = stubFetch([
+      text(AUDIT_CSV, 200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="audit-20261031.csv"',
+      }),
+    ]);
+    expect(
+      await client(fetch).audit.exportCsv({ event: "org.sso", since: "2026-10-01T00:00:00+00:00" }),
+    ).toBe(AUDIT_CSV);
+    expect(seen[0]!.url).toBe(
+      `${BASE_URL}/api/org/audit.csv?event=org.sso&since=2026-10-01T00%3A00%3A00%2B00%3A00`,
+    );
+    expect(seen[0]!.headers.Accept).toBe("text/csv");
+  });
+
+  it("a bad cursor is the server's 422", async () => {
+    const { fetch } = stubFetch([json({ detail: "The cursor is not valid." }, 422)]);
+    const error = await client(fetch)
+      .audit.list({ cursor: "nonsense" })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIError);
+    expect((error as APIError).message).toBe("The cursor is not valid.");
+  });
+
+  it("an API key is refused, as the route refuses every key", async () => {
+    const { fetch } = stubFetch([
+      json({ detail: "Membership is managed by a person, not an API key." }, 403),
+    ]);
+    await expect(client(fetch).audit.list()).rejects.toBeInstanceOf(PermissionDeniedError);
   });
 });
 

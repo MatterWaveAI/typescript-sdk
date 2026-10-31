@@ -146,6 +146,51 @@ export interface UsagePeriodParams {
   period?: string;
 }
 
+// --- audit -------------------------------------------------------------------
+
+/**
+ * One row of the org's audit trail: who changed what, and when. `actor` is
+ * the subject the writer had in hand (a system actor's looks like
+ * `stripe:evt_...`); `actor_email` is filled in where that subject has a
+ * users row, null otherwise.
+ */
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  actor: string;
+  actor_email: string | null;
+  action: string;
+  target: string | null;
+  detail: Record<string, unknown>;
+}
+
+/**
+ * `GET /api/org/audit`: one page of the trail, newest first. `next_cursor`
+ * fetches the page after this one and is null on the last; `actions` lists
+ * every action the trail holds, for a filter's options.
+ */
+export interface AuditPage {
+  data: AuditEvent[];
+  next_cursor: string | null;
+  actions: string[];
+}
+
+/** What narrows the trail. `event` matches an action exactly or as a dotted prefix (`org.sso` finds `org.sso.enforced`); `actor` matches a subject or an email, case-insensitively. */
+export interface AuditFilters {
+  event?: string;
+  actor?: string;
+  /** ISO timestamp; a bare one is read as UTC. */
+  since?: string;
+  until?: string;
+}
+
+export interface AuditListParams extends AuditFilters {
+  /** A previous page's `next_cursor`. */
+  cursor?: string;
+  /** Rows per page, 1 to 200; 50 when omitted. */
+  limit?: number;
+}
+
 // --- budget ------------------------------------------------------------------
 
 /**

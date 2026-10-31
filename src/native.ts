@@ -11,7 +11,10 @@
  * as its owner. Managing keys needs a key with `keys:manage` (or a
  * session), webhooks a key with `webhooks:manage`, the org usage report
  * (`usage.org`, `usage.exportCsv`) a key with `usage:read`, and moving a
- * budget cap an owner or admin. The scope never widens the owner's role:
+ * budget cap an owner or admin. The audit trail (`client.audit`) is the one
+ * exception among the reads: those routes gate on the membership row alone,
+ * so an API key is refused there outright and a signed-in session is what
+ * answers. The scope never widens the owner's role:
  * webhooks still need the owner to be an org owner or admin, and a member's
  * `usage:read` key sees only their own row. Notifications, announcements
  * and entitlements are the caller's own view, the way `/api/me` is: a
@@ -33,6 +36,9 @@ import type {
   ApiKeyWithSecret,
   Attachment,
   AttachmentLimits,
+  AuditFilters,
+  AuditListParams,
+  AuditPage,
   Budget,
   ConversationTags,
   CreateAnnouncementParams,
@@ -74,6 +80,7 @@ import type {
 import type { WithRequestId } from "./types.js";
 
 const DELIVERY_STATUSES: readonly DeliveryStatus[] = ["pending", "sending", "delivered", "failed"];
+const AUDIT_LIMIT_MAX = 200;
 const KEY_FIELDS = ["name", "scopes", "expires_in_days", "expires_at", "allowed_cidrs", "rpm_limit"] as const;
 
 /** The keys that were given, `null` included: where null means "clear it", it has to be sent. */
@@ -176,6 +183,60 @@ export class UsageClient extends Resource {
       {
         method: "GET",
         path: `/api/org/usage.csv${query({ period: params.period })}`,
+        body: undefined,
+        keyed: true,
+        stream: false,
+        headers: { Accept: "text/csv" },
+      },
+      options,
+    );
+  }
+}
+
+/** The audit filter params, spelled out so the CSV read can take them without a `limit`. */
+function auditQuery(params: AuditFilters): string {
+  return query({ event: params.event, actor: params.actor, since: params.since, until: params.until });
+}
+
+/**
+ * `/api/org/audit`: the org's trail of who changed what, the reads the org
+ * pane's audit tab makes. Owner or admin, and by membership row rather than
+ * a token claim: the platform refuses an API key on these routes outright,
+ * so they answer a signed-in session.
+ */
+export class Audit extends Resource {
+  /**
+   * One page, newest first. `event` matches an action exactly or as a
+   * dotted prefix; `actor` a subject or an email, case-insensitively;
+   * `since`/`until` bound the window (a bare one is read as UTC); `cursor`
+   * is a previous page's `next_cursor`; `limit` is 1 to 200, 50 when
+   * omitted. A cursor the API did not mint is the server's 422.
+   */
+  list(params: AuditListParams = {}, options: RequestOptions = {}): Promise<WithRequestId<AuditPage>> {
+    if (params.limit !== undefined && !(params.limit >= 1 && params.limit <= AUDIT_LIMIT_MAX)) {
+      throw new MatterWaveConfigError(`limit must be 1 to ${AUDIT_LIMIT_MAX}, got ${params.limit}`);
+    }
+    return this.call(
+      "GET",
+      `/api/org/audit${query({
+        event: params.event,
+        actor: params.actor,
+        since: params.since,
+        until: params.until,
+        cursor: params.cursor,
+        limit: params.limit,
+      })}`,
+      undefined,
+      options,
+    );
+  }
+
+  /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). */
+  exportCsv(params: AuditFilters = {}, options: RequestOptions = {}): Promise<string> {
+    return this.client.text(
+      {
+        method: "GET",
+        path: `/api/org/audit.csv${auditQuery(params)}`,
         body: undefined,
         keyed: true,
         stream: false,
