@@ -154,6 +154,8 @@ export type {
 } from "./frames.js";
 export { ChatCompletionAccumulator, toolMessage } from "./accumulate.js";
 export { sseDataFrames, sseEvents } from "./sse.js";
+/** The agent tool contract and its browser-safe helpers; `@matterwave/sdk/agent` adds path confinement for Node. */
+export * as agent from "./agent/index.js";
 export type { SSEEvent } from "./sse.js";
 export {
   webhooks,

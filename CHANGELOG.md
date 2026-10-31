@@ -26,6 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`GET /api/me`): whether a model can call tools and whether the org lets
   clients run local agent tools. Absent or null when the server does not
   send them.
+- The agent tool contract the coding clients share, version `1.0.0`
+  (`CONTRACT_VERSION`), generated from the Python SDK's `contract.json`
+  into `src/agent/contract.ts`: the seven local tools (`read_file`,
+  `list_dir`, `glob`, `grep`, `edit`, `write_file`, `run_shell`) with
+  their JSON Schemas, which are read-only, the approval modes `plan`, `ask`
+  (the default), `auto-edit` and `yolo` with what each allows and asks for,
+  the default deny list (`.env*`, `*.pem`, `id_*`, `.git/`, plus
+  `.matterwaveignore`), the refusal and edit-error sentences, the limits,
+  the shell per platform, and the versioned agent-mode system prompt. Typed
+  constants and the pure helpers `allowed(tool, mode)`, `toolsForMode`
+  (`plan` gets the read tools only), `systemPrompt`, `DenyList`,
+  `applyEdit` and `unifiedDiff` are the `agent` namespace of the main
+  entry; the new `@matterwave/sdk/agent` entry (Node only) adds `confine`,
+  `loadDenyList` and `resolveLinks`.
+- `tests/agent-conformance.json`, the conformance cases both SDKs' suites
+  run, and `tests/agent-contract.test.ts`, which recomputes the copy's
+  SHA-256 and compares it with the source when the Python SDK is beside
+  this checkout; CI clones it for that.
 - `scripts/refresh-openapi.mjs` (`pnpm openapi:refresh <path-or-url>`)
   refreshes `tests/openapi.json` from the app's export (`--check` exits 1
   when it is behind), and the `ci` workflow takes an `openapi_source` URL

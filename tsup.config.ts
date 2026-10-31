@@ -1,9 +1,12 @@
 import { defineConfig } from "tsup";
 
-// One entry, both module formats, one .d.ts. ES2020 is what Node 18 and
-// every evergreen browser run; nothing here needs a newer target.
+// Two entries, both module formats, a .d.ts each. The main one runs in Node
+// 18 and every evergreen browser (ES2020; nothing needs a newer target);
+// `agent` adds path confinement, which reads the filesystem, so it is
+// Node-only and its `node:` imports stay external.
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: { index: "src/index.ts", agent: "src/agent/node.ts" },
+  external: [/^node:/],
   format: ["esm", "cjs"],
   dts: true,
   sourcemap: true,

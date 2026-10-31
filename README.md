@@ -331,6 +331,96 @@ const answer = await client.mcp.sendMessage("<conversation-id>", "Draft a three-
 console.log(answer.text);
 ```
 
+## The agent tool contract
+
+The agent contract is what the MatterWave coding clients (the VS Code agent, the
+TUI's `code` mode) share: the local tools a client offers the model on `/v1`,
+the approval modes that gate them, the paths those tools may touch, and the
+agent-mode system prompt. It is versioned (`CONTRACT_VERSION`, `1.0.0`; the
+prompt carries its own `SYSTEM_PROMPT_VERSION`). Its one source is the Python
+SDK's `contract.json`; `src/agent/contract.ts` is generated from it and must
+not be edited by hand.
+
+Two entries carry it:
+
+- `import { agent } from "@matterwave/sdk"`: the contract's typed constants
+  and the pure helpers (`allowed`, `toolsForMode`, `systemPrompt`, `applyEdit`,
+  `unifiedDiff`, `DenyList`), browser-safe like the rest of the main entry.
+- `import { ... } from "@matterwave/sdk/agent"`: all of that plus `confine`,
+  `loadDenyList` and `resolveLinks`, which read the filesystem and so need Node
+  (the VS Code extension host, a CLI).
+
+| Tool | Kind | Arguments |
+|---|---|---|
+| `read_file` | read | `path`, `start_line`?, `end_line`? |
+| `list_dir` | read | `path`? |
+| `glob` | read | `pattern`, `path`? |
+| `grep` | read | `pattern`, `path`?, `glob`?, `ignore_case`? |
+| `edit` | write | `path`, `old_string`, `new_string` (fails when missing or not unique) |
+| `write_file` | write | `path`, `content` |
+| `run_shell` | shell | `command`, `timeout_s`? |
+
+| Mode | Runs without asking | Asks first |
+|---|---|---|
+| `plan` | the read tools | nothing; writes and the shell are not offered at all |
+| `ask` (default) | the read tools | `edit`, `write_file`, `run_shell` |
+| `auto-edit` | the read tools, `edit`, `write_file` | `run_shell` |
+| `yolo` | everything | nothing; needs a flag each session and is never saved |
+
+```ts
+import { readFileSync } from "node:fs";
+import { toolMessage } from "@matterwave/sdk";
+import { PathRefusedError, allowed, applyEdit, confine, systemPrompt, toolsForMode, unifiedDiff } from "@matterwave/sdk/agent";
+
+const tools = toolsForMode("ask");               // the `tools` to send
+const system = systemPrompt("ask", root);        // names the tools, the mode and the root
+
+for (const call of assistant.tool_calls ?? []) {
+  const decision = allowed(call.function.name, "ask"); // "allow", "ask" or "deny"
+  const args = JSON.parse(call.function.arguments);
+  let target;
+  try {
+    target = confine(root, args.path, { write: call.function.name !== "read_file" });
+  } catch (error) {
+    if (error instanceof PathRefusedError) {
+      messages.push(toolMessage(call.id, error.message)); // the contract's sentence
+      continue;
+    }
+    throw error;
+  }
+  // an edit: apply it to the text, show the diff, write only once approved
+  const before = readFileSync(target.absolute, "utf-8");
+  const after = applyEdit(before, args.old_string, args.new_string, { path: target.relative });
+  console.log(unifiedDiff(before, after, target.relative));
+}
+```
+
+`confine(root, path)` resolves a tool's path and returns where it really leads,
+or throws `PathRefusedError` (with a `reason` and the sentence to hand back to
+the model) before anything is read or written: for a `..` segment, an absolute
+path outside the root, a link that leads out of the root (symbolic links, and
+junctions on Windows), a path on the deny list, by its own name or its
+target's, or a write to a protected path. The deny list is `.env*`, `*.pem`,
+`id_*` and `.git/` plus the lines of the workspace's `.matterwaveignore`, and it
+applies to reads too, so those files are never sent to the model;
+`.matterwaveignore` itself can be read but not written. Confinement is not a
+sandbox: `run_shell` reaches whatever the user can, which is why it asks.
+
+`applyEdit` is `edit`'s exact replace on text (`EditError` when the string is
+missing, not unique, empty or unchanged; a model's LF strings still match a
+CRLF file), and `unifiedDiff` prints the diff an approval shows. Both are line
+for line ports of the Python SDK's, and the two suites run the same conformance
+cases (`tests/agent-conformance.json`, generated from the Python SDK's), so the
+two clients refuse, edit and print alike.
+
+The contract changes in the Python SDK: edit its `contract.json`, bump
+`contract_version`, and run its `scripts/gen_agent_contract.py` with this repo
+checked out beside it, which rewrites `src/agent/contract.ts` and
+`tests/agent-conformance.json`. `tests/agent-contract.test.ts` recomputes the
+copy's SHA-256 so a hand edit fails, and compares it with the source whenever
+the Python SDK sits beside this checkout (or `MATTERWAVE_AGENT_CONTRACT` names
+its `contract.json`, as CI does after cloning it).
+
 ## Development
 
 ```
