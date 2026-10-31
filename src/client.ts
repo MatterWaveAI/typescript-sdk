@@ -24,9 +24,11 @@ import {
   APITimeoutError,
   MatterWaveError,
   MissingAPIKeyError,
+  ParseError,
   errorClassFor,
 } from "./errors.js";
 import type { RateLimit } from "./errors.js";
+import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
@@ -402,6 +404,52 @@ export class Completions {
       return new Stream(response, controller);
     }
     return this.client.json<ChatCompletion>(prepared, options);
+  }
+
+  /**
+   * `create` plus validation: the answer's text is read as JSON and parsed
+   * by the caller's zod `schema`, whose value comes back -- the `.parse({
+   * schema })` the peers ship.
+   *
+   * The model is asked for a JSON object (`response_format` of
+   * `json_object`) unless the caller passes their own in `params`; send
+   * `response_format: { type: "json_schema", ... }` when the backend
+   * serves schema enforcement. Every other field of `params` goes to
+   * `create` unchanged.
+   *
+   * `ParseError` when the answer is empty or is not JSON; a schema failure
+   * throws the schema's own `ZodError`, which says which field the model
+   * got wrong.
+   */
+  async parse<S extends z.ZodType>(
+    params: ChatCompletionCreateParamsNonStreaming & { schema: S },
+    options: RequestOptions = {},
+  ): Promise<z.infer<S>> {
+    const { schema, ...request } = params;
+    if (!Array.isArray(request.messages) || request.messages.length === 0) {
+      throw new MatterWaveConfigError("messages must contain at least one message");
+    }
+    const completion = (await this.create(
+      { ...request, response_format: request.response_format ?? { type: "json_object" } },
+      options,
+    )) as WithRequestId<ChatCompletion>;
+    const content = completion.choices[0]?.message?.content;
+    if (typeof content !== "string" || content.trim() === "") {
+      throw new ParseError(
+        "The model answered with no content to parse (a tool call or an empty message, not a JSON object).",
+        { body: completion },
+      );
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(content);
+    } catch {
+      throw new ParseError(
+        "The model's answer is not JSON, so it cannot be validated against the schema.",
+        { body: content },
+      );
+    }
+    return schema.parse(data) as z.infer<S>;
   }
 }
 

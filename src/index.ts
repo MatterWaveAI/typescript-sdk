@@ -177,6 +177,7 @@ export {
   McpToolError,
   MissingAPIKeyError,
   NotFoundError,
+  ParseError,
   PermissionDeniedError,
   RateLimitError,
   ServerError,

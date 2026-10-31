@@ -119,6 +119,21 @@ export class ServerError extends APIError {}
 export class DeviceAuthError extends APIError {}
 
 /**
+ * A structured-output parse that could not produce the schema: the answer
+ * was empty or was not JSON. A schema failure is not here -- `schema.parse`'s
+ * own `ZodError` propagates, because it says which field the model got
+ * wrong. `body` carries the answer that would not parse.
+ */
+export class ParseError extends MatterWaveError {
+  readonly body: unknown;
+
+  constructor(message: string, options?: { cause?: unknown; body?: unknown }) {
+    super(message, options);
+    this.body = options?.body;
+  }
+}
+
+/**
  * A webhook delivery the receiver refused: the signature is missing,
  * malformed, stale or wrong, or the signed body is not a JSON object.
  * Local to the verification -- no status and no request id, because an
