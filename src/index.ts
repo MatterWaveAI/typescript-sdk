@@ -153,6 +153,17 @@ export type {
 export { sseDataFrames, sseEvents } from "./sse.js";
 export type { SSEEvent } from "./sse.js";
 export {
+  webhooks,
+  SIGNATURE_HEADER,
+  EVENT_ID_HEADER,
+  EVENT_TYPE_HEADER,
+  SIGNATURE_TOLERANCE_S,
+  sign as signWebhook,
+  verifySignature as verifyWebhookSignature,
+  unwrap as unwrapWebhook,
+} from "./webhooks.js";
+export type { Payload, HeadersLike, VerifyOptions } from "./webhooks.js";
+export {
   APIConnectionError,
   APIError,
   APITimeoutError,
@@ -168,6 +179,7 @@ export {
   PermissionDeniedError,
   RateLimitError,
   ServerError,
+  WebhookVerificationError,
 } from "./errors.js";
 export type { APIErrorInit, RateLimit } from "./errors.js";
 export {

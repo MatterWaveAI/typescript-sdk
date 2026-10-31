@@ -119,6 +119,14 @@ export class ServerError extends APIError {}
 export class DeviceAuthError extends APIError {}
 
 /**
+ * A webhook delivery the receiver refused: the signature is missing,
+ * malformed, stale or wrong, or the signed body is not a JSON object.
+ * Local to the verification -- no status and no request id, because an
+ * untrusted request is none of the API's doing.
+ */
+export class WebhookVerificationError extends MatterWaveError {}
+
+/**
  * A JSON-RPC error the `/mcp` endpoint answered with.
  *
  * `code` is the JSON-RPC code: -32601 for a method the server does not
