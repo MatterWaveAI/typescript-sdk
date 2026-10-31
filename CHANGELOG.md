@@ -7,8 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
 ### Added
 
+- `webhooks.unwrap(payload, headers, secret)` — the receiver's half of
+  webhooks: verify a delivered event and decode it. The
+  `MatterWave-Signature` header (`t=<unix>,v1=<hex HMAC-SHA256>` over
+  `<t>.<body>`) is checked with a constant-time compare, any `v1=` element
+  may match so a rotated secret verifies against either value during a
+  changeover, and the timestamp must sit within 300 seconds (the platform's
+  window) of the receiver's clock. `WebhookVerificationError` for a
+  missing, stale or wrong signature, or a body that is not a JSON object;
+  `sign` ships beside it, the platform sender's exact function. The MAC is
+  WebCrypto, so the module runs in Node and browsers alike, and the two
+  entry points are async the way the runtimes' own crypto is (T-201).
+- Per-call `timeoutMs` and `maxRetries` on any call's options, overriding
+  the client's settings for that one call — a single long call can take
+  minutes without holding the whole client at its pace (T-202).
+- `client.lastResponse` — the last HTTP response received, success or
+  refusal: status, headers, the request id, `Retry-After` and the
+  `X-RateLimit-*` window the parsed models leave behind, as a `RawResponse`
+  (T-203).
+- `client.chat.completions.parse({ schema })` — `create` plus validation:
+  the answer's text read as JSON and parsed by the caller's zod schema,
+  whose value comes back. A non-JSON answer is a `ParseError`; a schema
+  failure throws the schema's own `ZodError` (T-204).
+- `stream.accumulate()` on both streams — the whole answer or turn,
+  accumulated: iterate for the pieces, call this for the whole (T-205).
+- `client.conversations.items()` and the generic `itemsOf(pages)` — every
+  item of every page, one at a time, the item-level paginator over any
+  cursor-paginated list (T-205).
+- `onRequest` / `onResponse` client hooks — the request about to go out
+  and the response that came back, once per attempt, for logging (T-205).
+- `UnprocessableEntityError` — the 422 validation refusal as its own
+  class, the per-field messages joined onto the error (T-206).
 - `client.audit.list()` and `client.audit.exportCsv()` — the org's audit
   trail (`GET /api/org/audit`, `GET /api/org/audit.csv`), the reads the org
   pane's audit tab makes: one page of `audit_events` newest first (`data`,

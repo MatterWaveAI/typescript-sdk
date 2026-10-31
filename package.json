@@ -1,6 +1,6 @@
 {
   "name": "@matterwave/sdk",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "TypeScript client for the MatterWave API (the OpenAI-compatible /v1 surface)",
   "license": "MIT",
   "author": "MatterWave AI Contributors",
