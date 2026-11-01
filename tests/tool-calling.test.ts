@@ -66,6 +66,41 @@ describe("streamed tool calls", () => {
     expect(seen).toHaveLength(9);
   });
 
+  it("finalCompletion() is the whole answer with finish reason and usage", async () => {
+    const { fetch } = stubFetch([sse([TWO_CALLS])]);
+    const stream = await client(fetch).chat.completions.create({
+      messages: PROMPT,
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+    const completion = await stream.finalCompletion();
+    expect(completion.id).toBe("chatcmpl-01");
+    expect(completion.object).toBe("chat.completion");
+    expect(completion.model).toBe("grt-nano");
+    expect(completion.created).toBe(1790621573);
+    expect(completion.choices[0]!.finish_reason).toBe("tool_calls");
+    expect(completion.choices[0]!.message.content).toBe("Reading both.");
+    expect(completion.choices[0]!.message.tool_calls?.map((c) => c.id)).toEqual(["call_a", "call_b"]);
+    expect(completion.usage.total_tokens).toBe(42);
+    expect(completion.requestId).toBe(stream.requestId);
+  });
+
+  it("finalCompletion() reports zero usage when the stream carried none", async () => {
+    const body = chunk({ role: "assistant", content: "Hi." }) + chunk({}, "stop") + "data: [DONE]\n\n";
+    const { fetch } = stubFetch([sse([body])]);
+    const stream = await client(fetch).chat.completions.create({ messages: PROMPT, stream: true });
+    const completion = await stream.finalCompletion();
+    expect(completion.choices[0]!.finish_reason).toBe("stop");
+    expect(completion.usage.total_tokens).toBe(0);
+  });
+
+  it("finalCompletion() refuses a stream cut before its finish reason", async () => {
+    const body = chunk({ role: "assistant", content: "Half" }) + "data: [DONE]\n\n";
+    const { fetch } = stubFetch([sse([body])]);
+    const stream = await client(fetch).chat.completions.create({ messages: PROMPT, stream: true });
+    await expect(stream.finalCompletion()).rejects.toThrow(/without a finish reason/);
+  });
+
   it("a pure tool-call turn has null content", async () => {
     const body =
       chunk({ role: "assistant" }) +

@@ -9,13 +9,25 @@
  *
  * `client.conversations` is the app's own conversation API, streaming typed
  * frames; `client.auth.device` signs a person in by device code and returns
- * the key to use. `client.keys`, `client.usage`, `client.webhooks`,
+ * the key to use, and `client.auth.person` signs them in at the identity
+ * provider for a token of their own (`accessToken`), which the routes that
+ * manage the organisation require; `CREDENTIALS` says which credential each
+ * operation needs. `client.keys`, `client.usage`, `client.webhooks`,
  * `client.attachments`, `client.library`, `client.shares`, `client.budget`,
  * `client.notifications`, `client.announcements` and `client.entitlements`
- * are the app's native routes for the same, `client.admin` is the operator
- * surface (the platform `admin` role, not an API key's), and `client.mcp`
- * speaks the `/mcp` JSON-RPC endpoint (list tools, call one, send a
- * message).
+ * are the app's native routes for the same, `client.account`,
+ * `client.preferences`, `client.sessions`, `client.exports`,
+ * `client.imports`, `client.speech` and `client.billing` the caller's own
+ * account and data, `client.plans` and `client.policy` the public figures,
+ * `client.org`, `client.members`, `client.invites` and `client.inviteLinks`
+ * administer the organisation with a person's token, `client.passkeys`,
+ * `client.mfa` and `client.accounts` are the sign-in ceremonies the web app
+ * runs, `client.edge` pairs and syncs an edge box, `client.admin` is the
+ * operator surface (the platform `admin` role, not an API key's), and
+ * `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list tools, call one,
+ * send a message).
+ *
+ * @module @matterwave/sdk
  */
 
 export {
@@ -37,16 +49,19 @@ export {
   newIdempotencyKey,
   setSleep,
 } from "./client.js";
-export type { ClientOptions, ClientOverrides, Fetch, RequestOptions, Schema, Sleep } from "./client.js";
+export type { AccessTokenProvider, ClientOptions, ClientOverrides, Fetch, RequestOptions, Schema, Sleep } from "./client.js";
 export { LOG_ENV } from "./log.js";
 export type { LogLevel, Logger } from "./log.js";
-export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf } from "./conversations.js";
+export { CREDENTIALS, PERSON_ONLY_DETAIL } from "./credentials.js";
+export type { Credential } from "./credentials.js";
+export { PersonAuth, PersonSession, REFRESH_AHEAD_S } from "./person.js";
+export type { AuthConfig, PersonLoginOptions, PersonToken } from "./person.js";
+export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf, pagesOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
-export { Account, Accounts, Admin, AdminAnnouncements, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Mfa, Notifications, Org, Passkeys, Shares, Speech, UsageClient, Webhooks } from "./native.js";
-export { Edge } from "./native.js";
+export { Accounts, Admin, AdminAnnouncements, Announcements, Attachments, Audit, BudgetClient, Edge, EntitlementsClient, Keys, LibraryClient, Mfa, Notifications, Passkeys, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
   AccountDeleted,
   AccountLoggedOut,
@@ -68,35 +83,28 @@ export type {
   AuditFilters,
   AuditListParams,
   AuditPage,
-  BillingStatus,
   BillingUrl,
   Budget,
-  CheckoutParams,
   Collection,
   ConversationTags,
   CreateAnnouncementParams,
-  AttachIdpParams,
   ClaimDomainParams,
-  CloseOrgParams,
-  CreateInviteLinkParams,
-  CreateInviteParams,
   CreateKeyParams,
   CreateShareParams,
   CreateWebhookParams,
+  CreatedInvite,
+  CreatedInviteLink,
   CreatedShare,
   DailyUsage,
+  DeleteAccountParams,
   DeliveryStatus,
   DnsChallenge,
   DomainChallengeAnswer,
-  DomainList,
-  DomainVerification,
   DunningState,
-  DunningStep,
   EmailChangeCancelled,
   EmailChangeState,
   EmailCodeSent,
   EmailChanged,
-  EmailPreferences,
   EdgeConversation,
   EdgeDevice,
   EdgeDeviceList,
@@ -110,13 +118,7 @@ export type {
   ExportJobStatus,
   ExportJobStatusKind,
   Folder,
-  ImportJob,
-  ImportJobList,
   ImportJobStatusKind,
-  Invoice,
-  InvoiceList,
-  InviteList,
-  InviteLinkList,
   InviteLinkRow,
   InvitePreview,
   InviteStatus,
@@ -131,16 +133,12 @@ export type {
   MintPairingParams,
   MemberBudget,
   MemberBudgetList,
-  MemberList,
   MemberSeats,
   MemberUsage,
-  ModelPolicy,
-  ModelPolicyEntry,
   ModelUsage,
   Notification,
   NotificationList,
   NotificationListParams,
-  NotificationPreferences,
   OnboardingComplete,
   OrgProfile,
   OrgClosed,
@@ -148,8 +146,6 @@ export type {
   OrgIdpRow,
   OrgInvite,
   OrgMember,
-  OrgRole,
-  OrgShareList,
   OrgShareRevoked,
   OrgShareRow,
   OrgUsage,
@@ -166,20 +162,14 @@ export type {
   PairingCode,
   PairingGranted,
   PairParams,
-  Plan,
-  PlanCatalog,
   PlanEvent,
-  PlanHistory,
   PlanModelPrice,
-  Preferences,
   ReadAllNotifications,
   ReadNotification,
-  RecoveryCode,
   RecoveryCodeMinted,
   RecoveryCodesReissued,
   RenameOrgParams,
   RenameParams,
-  SessionList,
   SessionRevoked,
   SessionRow,
   SessionsRevokedOthers,
@@ -192,12 +182,10 @@ export type {
   Share,
   ShareList,
   SharedConversation,
-  SharingPolicy,
   SignedInAccount,
   SwitchPlanParams,
   SsoEnforced,
   SsoRelaxed,
-  SsoSettings,
   StartEmailChangeParams,
   Tag,
   TermsAccepted,
@@ -206,12 +194,9 @@ export type {
   TotpEnrolment,
   TotpProof,
   TotpRemoved,
-  TranscribeParams,
-  Transcription,
   UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
-  UpdatePreferencesParams,
   UpdateWebhookParams,
   UploadAttachmentParams,
   UploadImportParams,
@@ -223,10 +208,91 @@ export type {
   WebhookEndpoint,
   WebhookEndpointList,
   WebhookEndpointWithSecret,
+  EntitlementLimits,
 } from "./native-types.js";
+export { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
+export type {
+  AccountExport,
+  AttachmentScan,
+  BillingStatus,
+  CreateImportParams,
+  Dunning,
+  DunningLimits,
+  DunningSchedule,
+  DunningStep,
+  EmailPreferences,
+  Enforcement,
+  EnforcementLimit,
+  ImportJob,
+  ImportJobList,
+  ModelPrice,
+  NotificationPreferences,
+  Plan,
+  PlanCatalog,
+  PolicyStats,
+  Preferences,
+  RevokedSession,
+  RevokedSessions,
+  Session,
+  SessionList,
+  TermsAcceptance,
+  TranscribeParams,
+  Transcription,
+  UpdateAccountParams,
+  UpdatePreferencesParams,
+  UpdatedName,
+  WaitOptions,
+} from "./account-types.js";
+export { Domains, IdentityProviders, InviteLinks, Invites, Members, OrgClient } from "./org.js";
+export type {
+  ApproveDeviceParams,
+  AttachIdpParams,
+  BillingLink,
+  ChangePlanParams,
+  CheckoutParams,
+  CloseOrgParams,
+  ClosedOrg,
+  CreateInviteLinkParams,
+  CreateInviteParams,
+  DeviceDecision,
+  DeviceLookup,
+  DnsRecord,
+  Domain,
+  DomainChallenge,
+  DomainList,
+  DomainVerification,
+  IdentityProvider,
+  IdentityProviderList,
+  Invite,
+  InviteLink,
+  InviteLinkList,
+  InviteList,
+  InviteLookup,
+  Invoice,
+  InvoiceList,
+  LinkLookup,
+  Member,
+  MemberList,
+  MfaSettings,
+  MintedRecoveryCode,
+  ModelPolicy,
+  ModelPolicyEntry,
+  Org,
+  OrgRole,
+  OrgShare,
+  OrgShareList,
+  PlanChange,
+  PlanHistory,
+  RecoveryCode,
+  RevokedOrgShare,
+  Seats,
+  SharingPolicy,
+  SsoSettings,
+} from "./org-types.js";
 export type {
   AppModel,
   AppModelList,
+  ListConversationsParams,
   Conversation,
   ConversationContext,
   ConversationFilter,
@@ -287,8 +353,13 @@ export {
   EVENT_ID_HEADER,
   EVENT_TYPE_HEADER,
   SIGNATURE_TOLERANCE_S,
+  STANDARD_ID_HEADER,
+  STANDARD_TIMESTAMP_HEADER,
+  STANDARD_SIGNATURE_HEADER,
   sign as signWebhook,
+  signStandard as signStandardWebhook,
   verifySignature as verifyWebhookSignature,
+  verifyStandardSignature as verifyStandardWebhookSignature,
   unwrap as unwrapWebhook,
 } from "./webhooks.js";
 export type { Payload, HeadersLike, VerifyOptions } from "./webhooks.js";

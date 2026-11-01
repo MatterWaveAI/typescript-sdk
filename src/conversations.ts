@@ -12,6 +12,7 @@
  */
 
 import { MatterWaveConfigError, backoffMs, pause } from "./client.js";
+import { PersonAuth } from "./person.js";
 import type { MatterWave, Prepared, RequestOptions } from "./client.js";
 import type {
   Conversation,
@@ -44,6 +45,7 @@ import type {
 import { FEEDBACK_REASONS, REPORT_KINDS } from "./conversation-types.js";
 import { APIConnectionError, APIError, APITimeoutError, DeviceAuthError, MatterWaveError } from "./errors.js";
 import { frameFromEvent, isTerminal, type ConversationFrame } from "./frames.js";
+import type { ApproveDeviceParams, DeviceDecision, DeviceLookup } from "./org-types.js";
 import { sseEvents, type SSEEvent } from "./sse.js";
 import type { WithRequestId } from "./types.js";
 
@@ -59,6 +61,25 @@ export const RESUME_PLACEHOLDER = "(resume)";
 const DEVICE_ERRORS = new Set(["authorization_pending", "slow_down", "expired_token", "access_denied"]);
 // RFC 8628 section 3.5: each `slow_down` adds five seconds to the interval, for good.
 const SLOW_DOWN_STEP_S = 5;
+
+/**
+ * Every page of a cursor-paginated list, first to last: `fetch(undefined)`
+ * is the first page and `fetch(cursor)` each later one, until a page's
+ * `next_cursor` is null. Each page is fetched only when the previous one
+ * has been consumed, so stopping early fetches nothing more.
+ *
+ *     for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ cursor })))) { ... }
+ */
+export async function* pagesOf<Page extends { next_cursor?: string | null }>(
+  fetch: (cursor: string | undefined) => Promise<Page>,
+): AsyncGenerator<Page> {
+  let cursor: string | undefined;
+  do {
+    const page = await fetch(cursor);
+    yield page;
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor !== undefined);
+}
 
 /**
  * Every item of every page: the generic item-level paginator over any
@@ -143,6 +164,7 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
   result: ConversationMessage | null = null;
   private consumed = false;
 
+  /** @internal A turn's response, as `conversations.send`, `edit` and `regenerate` open it. */
   constructor(
     private readonly client: MatterWave,
     private readonly prepared: Prepared,
@@ -261,16 +283,11 @@ export class Conversations {
   }
 
   /** Every page of `list`, first to last, each fetched as the previous one is consumed. */
-  async *pages(
+  pages(
     params: Omit<ListConversationsParams, "cursor"> = {},
     options: RequestOptions = {},
   ): AsyncGenerator<WithRequestId<ConversationList>> {
-    let cursor: string | undefined;
-    do {
-      const page = await this.list({ ...params, cursor }, options);
-      yield page;
-      cursor = page.next_cursor ?? undefined;
-    } while (cursor !== undefined);
+    return pagesOf((cursor) => this.list({ ...params, cursor }, options));
   }
 
   /** Every conversation of every page, one at a time: the item-level paginator, walking `pages` so each page is fetched only as the previous one runs dry. */
@@ -522,6 +539,10 @@ export interface DeviceLoginOptions {
  * them a code, they approve it in any browser, and the poll returns an API
  * key that acts as them. Nothing is stored here; keeping the token is the
  * caller's job.
+ *
+ * `lookup`, `approve` and `deny` are the other side, deciding a code a
+ * device shows: they need a signed-in person's token (`accessToken`), and
+ * an API key is refused.
  */
 export class DeviceAuth {
   constructor(private readonly client: MatterWave) {}
@@ -589,12 +610,54 @@ export class DeviceAuth {
       }
     }
   }
+
+  /**
+   * `POST /api/auth/device/lookup`: which client is asking with the code a
+   * device shows, before the person decides. An API key is refused here: a
+   * key that could mint keys would outlive its own revocation.
+   */
+  lookup(userCode: string, options: RequestOptions = {}): Promise<WithRequestId<DeviceLookup>> {
+    return this.client.json<DeviceLookup>(decision("/api/auth/device/lookup", userCode, {}), options);
+  }
+
+  /**
+   * `POST /api/auth/device/approve`: let the device sign in as the caller;
+   * it gets an API key (named after `name`, or the client) on its next
+   * poll. `ConflictError` once the code was decided.
+   */
+  approve(
+    userCode: string,
+    params: ApproveDeviceParams = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<DeviceDecision>> {
+    return this.client.json<DeviceDecision>(decision("/api/auth/device/approve", userCode, params), options);
+  }
+
+  /** `POST /api/auth/device/deny`: refuse the device; its poll ends in `access_denied`. */
+  deny(userCode: string, options: RequestOptions = {}): Promise<WithRequestId<DeviceDecision>> {
+    return this.client.json<DeviceDecision>(decision("/api/auth/device/deny", userCode, {}), options);
+  }
 }
 
+/** A person's decision on the code a device shows, sent with their credential. */
+function decision(path: string, userCode: string, params: ApproveDeviceParams): Prepared {
+  if (!userCode || userCode.length > 32) throw new MatterWaveConfigError("userCode must be the code the device shows");
+  const body: Record<string, unknown> = { user_code: userCode };
+  if (params.name != null) body.name = params.name;
+  return { method: "POST", path, body, keyed: true, stream: false };
+}
+
+/**
+ * `device` signs a person in through the API and ends in an API key;
+ * `person` signs them in at the identity provider and ends in their own
+ * token, which the routes that manage the organisation require.
+ */
 export class Auth {
   readonly device: DeviceAuth;
+  readonly person: PersonAuth;
   constructor(client: MatterWave) {
     this.device = new DeviceAuth(client);
+    this.person = new PersonAuth(client);
   }
 }
 
@@ -602,7 +665,8 @@ export class Auth {
  * Custom instructions, the three levels the platform keeps. The org level
  * is additive policy every member is subject to; the conversation level
  * replaces the user's for that thread (`conversations.updateInstructions`).
- * Reads of the org level are admin-only, as are writes.
+ * Reads of the org level are admin-only, as are writes, and both need a
+ * person's token.
  */
 export class Instructions {
   constructor(private readonly client: MatterWave) {}
@@ -638,12 +702,12 @@ export class Instructions {
     );
   }
 
-  /** `GET /api/org/instructions`: the org's policy text. `PermissionDeniedError` for anyone but an owner or admin. */
+  /** `GET /api/org/instructions`: the org's policy text. `PermissionDeniedError` for anyone but an owner or admin. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   org(options: RequestOptions = {}): Promise<WithRequestId<OrgInstructions>> {
     return this.call("GET", "/api/org/instructions", undefined, options);
   }
 
-  /** `PUT /api/org/instructions`: set (or with an empty string, clear) the policy every member's turns are prefixed with. Owner or admin only. */
+  /** `PUT /api/org/instructions`: set (or with an empty string, clear) the policy every member's turns are prefixed with. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   updateOrg(
     params: { text: string },
     options: RequestOptions = {},

@@ -34,8 +34,10 @@ import {
 import type { RateLimit } from "./errors.js";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
-import { Admin, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
-import { Account, Accounts, Edge, Mfa, Passkeys, Speech } from "./native.js";
+import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Accounts, Edge, Mfa, Passkeys } from "./native.js";
+import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
+import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
 import { sseDataFrames } from "./sse.js";
 import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
 import type { LogLevel, Logger } from "./log.js";
@@ -132,9 +134,20 @@ export class RawResponse {
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
+/** A function asked for a person's access token before each call: a `PersonSession`'s `accessToken`, or the caller's own refresher. */
+export type AccessTokenProvider = () => string | Promise<string>;
+
 export interface ClientOptions {
   /** Defaults to `MATTERWAVE_API_KEY`. Only `index()` works without one. */
   apiKey?: string | null;
+  /**
+   * A person's token from the identity provider, in place of a key: the
+   * token itself, or a function asked for it before each call
+   * (`client.auth.person.session(token).accessToken` refreshes). The routes
+   * that manage the organisation (`CREDENTIALS` marks them `person`) take
+   * nothing else; every other route takes either. Not with `apiKey`.
+   */
+  accessToken?: string | AccessTokenProvider | null;
   /** The origin the API is served from; defaults to `MATTERWAVE_BASE_URL`. The OpenAI-style form ending in `/v1` is accepted too. */
   baseUrl?: string | null;
   /** Per attempt. The default is 60 seconds. */
@@ -529,14 +542,25 @@ export class Stream implements AsyncIterable<WithRequestId<ChatCompletionChunk>>
   /**
    * Drain the stream and return the assistant message it spelled out: the
    * text, and each tool call reassembled from its fragments, ready to run
-   * and to send back in the next request's `messages`. For the finish
-   * reason and usage as well, feed the chunks to a
-   * `ChatCompletionAccumulator` yourself.
+   * and to send back in the next request's `messages`. `finalCompletion()`
+   * has the finish reason and usage as well.
    */
   async finalMessage(): Promise<AssistantMessage> {
     const accumulator = new ChatCompletionAccumulator();
     for await (const chunk of this) accumulator.add(chunk);
     return accumulator.message();
+  }
+
+  /**
+   * Drain the stream and return the whole answer as the non-streamed call
+   * would have: the message with its tool calls reassembled, the finish
+   * reason, the usage (all zeros unless the call asked for it with
+   * `stream_options: { include_usage: true }`), the id and the model.
+   */
+  async finalCompletion(): Promise<WithRequestId<ChatCompletion>> {
+    const accumulator = new ChatCompletionAccumulator();
+    for await (const chunk of this) accumulator.add(chunk);
+    return withRequestId(accumulator.completion(), this.requestId);
   }
 
   abort(): void {
@@ -725,31 +749,44 @@ export class MatterWave {
   readonly admin: Admin;
   /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
   readonly mcp: Mcp;
-  /** The caller's own account: rename, terms, password, email, sessions, preferences, deletion. */
+  /** The caller's own account: their name, the terms, enforcement, password, email, sessions, preferences, onboarding and deletion. */
   readonly account: Account;
-  /** The account export as a job: start, poll, download. */
+  /** The mail the caller gets, their notices and their locale. */
+  readonly preferences: PreferencesClient;
+  /** The browsers signed in as the caller: list them, sign one out, or all the others. */
+  readonly sessions: Sessions;
+  /** Everything the account holds, as one JSON document or as a job: start, poll, download. */
   readonly exports: Exports;
-  /** ChatGPT/Claude history imports: start from a file, then poll. */
+  /** Conversations brought over from ChatGPT's or Claude's data export. */
   readonly imports: Imports;
-  /** The org's members, invites, invite links and join. */
-  readonly members: Members;
-  /** The org itself and its admin self-service: name, closure, models, sharing, SSO, domains, IdP. */
-  readonly org: Org;
-  /** Plans and billing: the catalog, the move to Free, checkout, portal, status, invoices. */
+  /** Dictation: the words in an audio clip. */
+  readonly speech: Speech;
+  /** The org's billing: the catalog, the status any member reads, and checkout, the portal, invoices and plan changes for an owner or admin. */
   readonly billing: Billing;
+  /** The public price list, read with no credential. */
+  readonly plans: Plans;
+  /** The public policy page's counts, read with no credential. */
+  readonly policy: Policy;
+  /** The organisation and its settings, domains and identity providers; a person's token. */
+  readonly org: OrgClient;
+  /** Who is in the org and in what role, with its invites and links; a person's token. */
+  readonly members: Members;
+  /** Invitations by email, and accepting one; a person's token. */
+  readonly invites: Invites;
+  /** Shareable join links, and joining through one; a person's token. */
+  readonly inviteLinks: InviteLinks;
   /** Passkeys: registration for the signed-in, the sign-in ceremony for everyone. */
   readonly passkeys: Passkeys;
   /** The second factor: TOTP enrolment, recovery codes, the sign-in code step. */
   readonly mfa: Mfa;
   /** Several accounts on one browser: the roster, the switch, the sign-outs. */
   readonly accounts: Accounts;
-  /** Dictation: one short clip in, its text out. */
-  readonly speech: Speech;
   /** Edge pairing and sync: an admin mints codes, a device key pushes. */
   readonly edge: Edge;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
+  private readonly accessToken: string | AccessTokenProvider | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly maxRetryWaitMs: number;
@@ -763,7 +800,17 @@ export class MatterWave {
   private readonly log: RequestLog;
 
   constructor(options: ClientOptions = {}) {
-    this.apiKey = options.apiKey ?? envValue(API_KEY_ENV);
+    const accessToken = options.accessToken ?? null;
+    if (accessToken !== null && options.apiKey != null) {
+      throw new MatterWaveConfigError("pass apiKey or accessToken, not both: each is the whole bearer");
+    }
+    if (accessToken !== null && typeof accessToken !== "string" && typeof accessToken !== "function") {
+      throw new MatterWaveConfigError("accessToken must be a token or a function that returns one");
+    }
+    this.accessToken = accessToken;
+    // A person's token replaces the key outright, so MATTERWAVE_API_KEY is
+    // not read beside one.
+    this.apiKey = accessToken !== null ? null : (options.apiKey ?? envValue(API_KEY_ENV));
     this.allowBrowser = options.dangerouslyAllowBrowser === true;
     if (this.apiKey !== null && inBrowser() && !this.allowBrowser) {
       throw new MatterWaveConfigError(
@@ -805,15 +852,21 @@ export class MatterWave {
     this.admin = new Admin(this);
     this.mcp = new Mcp(this);
     this.account = new Account(this);
+    this.preferences = new PreferencesClient(this);
+    this.sessions = new Sessions(this);
     this.exports = new Exports(this);
     this.imports = new Imports(this);
-    this.members = new Members(this);
-    this.org = new Org(this);
+    this.speech = new Speech(this);
     this.billing = new Billing(this);
+    this.plans = new Plans(this);
+    this.policy = new Policy(this);
+    this.org = new OrgClient(this);
+    this.members = new Members(this);
+    this.invites = new Invites(this);
+    this.inviteLinks = new InviteLinks(this);
     this.passkeys = new Passkeys(this);
     this.mfa = new Mfa(this);
     this.accounts = new Accounts(this);
-    this.speech = new Speech(this);
     this.edge = new Edge(this);
   }
 
@@ -835,6 +888,7 @@ export class MatterWave {
     }
     const view = new MatterWave({
       apiKey: this.apiKey,
+      accessToken: this.accessToken,
       baseUrl: this.baseUrl,
       timeoutMs: overrides.timeoutMs ?? this.timeoutMs,
       maxRetries: overrides.maxRetries ?? this.maxRetries,
@@ -859,7 +913,7 @@ export class MatterWave {
     );
   }
 
-  /** `GET /api/me`: who the key (or device-login token) acts as. */
+  /** `GET /api/me`: who the key or the person's token acts as. */
   me(options: RequestOptions = {}): Promise<WithRequestId<Me>> {
     return this.json<Me>(
       { method: "GET", path: "/api/me", body: undefined, keyed: true, stream: false },
@@ -942,7 +996,12 @@ export class MatterWave {
     // The call's extra fields join the body before anything reads it, so the
     // content type follows the body that is actually sent.
     const sending: Prepared = { ...prepared, body: withExtraBody(prepared, options.extraBody) };
-    const headers = this.headersFor(sending, { ...options.headers, ...options.extraHeaders }, idempotencyKey);
+    // A token function is asked once per call, and only for a keyed route;
+    // a static credential adds no await, so the request still leaves in the
+    // same tick it was made in.
+    const provided =
+      prepared.keyed && typeof this.accessToken === "function" ? await this.providedToken(this.accessToken) : null;
+    const headers = this.headersFor(sending, { ...options.headers, ...options.extraHeaders }, idempotencyKey, provided);
     const url = withQuery(this.baseUrl + prepared.path, options.extraQuery);
     // The call's own bounds win, then the operation's (an MCP tool that
     // runs a whole model turn), then the client's defaults.
@@ -1013,16 +1072,51 @@ export class MatterWave {
   }
 
   /**
+   * A request to another origin -- the identity provider's endpoints --
+   * through the client's `fetch`, with the client's timeout and none of
+   * the API's headers or credential.
+   * @internal
+   */
+  async fetchExternal(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const stop = linkSignals(controller, undefined, this.timeoutMs);
+    try {
+      return await this.fetchImpl(url, {
+        ...init,
+        headers: { "User-Agent": USER_AGENT, ...(init.headers as Record<string, string>) },
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      throw stop.timedOut
+        ? new APITimeoutError(`${init.method ?? "GET"} ${url} timed out.`, { cause })
+        : new APIConnectionError(`${init.method ?? "GET"} ${url} could not be reached: ${describe(cause)}`, { cause });
+    } finally {
+      stop.clear();
+    }
+  }
+
+  /** A token function's answer, refused unless it is a token. */
+  private async providedToken(provider: AccessTokenProvider): Promise<string> {
+    const token = await provider();
+    if (typeof token !== "string" || token === "") {
+      throw new MatterWaveConfigError("accessToken's function must return the token, a non-empty string");
+    }
+    return token;
+  }
+
+  /**
    * Least specific first: the client's own `Accept` and `User-Agent`, then
    * `defaultHeaders`, which may replace them (a client built on this one
    * names itself), then what the operation needs (`Last-Event-ID` on a
    * resume) and the call's own, then a write's idempotency key, then the
-   * bearer.
+   * bearer: the key, the person's token, or `provided`, a token function's
+   * answer for this call.
    */
   private headersFor(
     prepared: Prepared,
     extra: Record<string, string> | undefined,
     idempotencyKey: string | null,
+    provided: string | null,
   ): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: prepared.stream ? "text/event-stream" : "application/json",
@@ -1036,12 +1130,13 @@ export class MatterWave {
     if (idempotencyKey !== null && !named) headers[IDEMPOTENCY_HEADER] = idempotencyKey;
     if (prepared.body !== undefined && !isForm(prepared.body)) headers["Content-Type"] = "application/json";
     if (prepared.keyed) {
-      if (this.apiKey === null) {
+      const bearer = provided ?? (typeof this.accessToken === "string" ? this.accessToken : this.apiKey);
+      if (bearer === null) {
         throw new MissingAPIKeyError(
-          `${prepared.method} ${prepared.path} needs an API key: pass apiKey or set ${API_KEY_ENV}.`,
+          `${prepared.method} ${prepared.path} needs a credential: pass apiKey (or set ${API_KEY_ENV}), or a person's accessToken.`,
         );
       }
-      headers.Authorization = `Bearer ${this.apiKey}`;
+      headers.Authorization = `Bearer ${bearer}`;
     }
     return headers;
   }

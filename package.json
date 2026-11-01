@@ -77,7 +77,8 @@
     "lint": "eslint src tests",
     "attw": "attw --pack .",
     "agent:check": "vitest run tests/agent-contract.test.ts",
-    "openapi:refresh": "node scripts/refresh-openapi.mjs"
+    "openapi:refresh": "node scripts/refresh-openapi.mjs",
+    "openapi:refresh-full": "node scripts/refresh-openapi-full.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

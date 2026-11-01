@@ -9,6 +9,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Organisation administration, for a person's token: `org` (`get`,
+  `rename`, `close`, the model allow-list, sharing and the org's share
+  links, SSO with its recovery code, two-factor, and `org.domains` and
+  `org.idps`), `members` (`list`, `setRole`, `transferOwnership`,
+  `remove`), `invites` (`list`, `create`, `resend`, `revoke`, `accept`, and
+  the anonymous `lookup`), `inviteLinks` (`list`, `create`, `revoke`,
+  `join`, and the anonymous `lookup`), `billing.checkout` / `portal` /
+  `invoices` / `changePlan` / `planHistory`, and `auth.device.lookup` /
+  `approve` / `deny`. One-time secrets (a link's token and url, an SSO
+  recovery code) say so in their doc comments. Every person-only method's
+  doc comment, its class's or its module's says it needs a person's token,
+  which `tests/person-only.test.ts` checks.
+- The account and data routes a key reaches: `account` (`update`,
+  `acceptTerms`, `enforcement`), `preferences` (`get`, `update`, which reads
+  the object, lays the changes over it and writes it back, since the route
+  replaces it), `sessions` (`list`, `revoke`, `revokeOthers`), `exports`
+  (`create`, `get`, `wait`, `download`, `createAndDownload`, `document`),
+  `imports` (`create`, `list`, `get`, `wait`), `speech.transcribe`,
+  `attachments.scan` / `view` (`view` follows the route's same-origin signed
+  redirect to the bytes), `billing.status`, and the public `plans.list` and
+  `policy.stats`, sent with no credential. `APP_OPERATIONS` and
+  `CREDENTIALS` name each route; their wire types are exported.
+- Examples, each run by `tests/examples.test.ts` against a stubbed fetch:
+  `chat`, `streaming`, `structured-output`, `webhook-receiver`,
+  `device-sign-in` (an API key or a person's token) and `pagination`.
+- A generated API reference: the `docs` workflow builds it with typedoc
+  (warnings fail the build), checks every export has its page
+  (`scripts/check-reference.mjs`) and uploads it as the `api-reference`
+  artifact. `EntitlementLimits` and `ListConversationsParams` are exported,
+  since public signatures name them.
+- A person's token in place of an API key: the `accessToken` client option,
+  the token itself or a function asked for it before each call (it may
+  return a promise). The routes that manage the organisation, which refuse
+  every key, take it.
+- `client.auth.person` (`PersonAuth`): the device authorization grant against
+  the identity provider's native client that `/api/auth-config` names
+  (`login`, `start`, `poll`, `refresh`, `config`), returning a `PersonToken`
+  with a refresh token (`offline_access`), and `session(token, { onRefresh })`
+  (`PersonSession`), whose `accessToken` refreshes a minute before expiry.
+- `CREDENTIALS`: the credential each operation needs (`public`, `key`,
+  `key:<scope>`, `person`), held by the drift test to the per-route
+  `security` of the platform's route document; the README tabulates it.
+  The missing-credential error now names both ways to give one.
+- Route drift tests that run in every checkout: `tests/openapi-full.json`
+  (the platform's whole route document, vendored at the commit
+  `tests/openapi-full.pin.json` names, by `pnpm openapi:refresh-full`) holds
+  every route the SDK calls, and every route the platform documents is
+  wrapped or listed with its reason in `tests/routes-not-covered.json`.
+  `scripts/check-live-routes.mjs` and the daily `route-drift` workflow hold a
+  running deployment's `/openapi.json` to the same pair and open an issue on
+  drift. The check that waited for the `/v1` export to name the `/api`
+  routes is gone; the native route table is still held to the platform's
+  source when its checkout is beside this one.
+- `stream.finalCompletion()` and `ChatCompletionAccumulator.completion()`:
+  the whole streamed answer as a `ChatCompletion` -- the message with its
+  tool calls, the finish reason, the usage, the id and model. A stream that
+  ended without a finish reason throws `MatterWaveError` rather than pass for
+  a whole answer.
+- Standard Webhooks verification: `webhooks.verifyStandardSignature`
+  (exported as `verifyStandardWebhookSignature`) checks `webhook-id`,
+  `webhook-timestamp` and `webhook-signature` (`v1,` and base64, keyed by the
+  base64 after `whsec_`), and `webhooks.unwrap` accepts a delivery whose
+  MatterWave or Standard Webhooks signature verifies. `webhooks.signStandard`
+  and `webhooks.secretKeyBytes` write and key them.
+- Page and item iterators for every cursor-paged list: `audit.pages()` /
+  `audit.items()` (the same filters as `audit.list`) and
+  `library.searchPages(q)` / `library.searchItems(q)`. `pagesOf(fetch)` is
+  the page walk they share, exported beside `itemsOf` for any list
+  answering `{ data, next_cursor }`; `conversations.pages()` uses it too.
 - `frequency_penalty` and `presence_penalty` on `chat.completions.create`,
   relayed to the model as OpenAI defines them (-2 to 2), and in
   `CHAT_COMPLETION_REQUEST_FIELDS`.
@@ -98,6 +167,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unset rather than throwing.
 - Every action in the workflows is pinned to a commit, and the workflow
   token is read-only unless a job needs more.
+- The methods whose routes refuse every API key -- `audit.list` /
+  `exportCsv`, `instructions.org` / `updateOrg` and `budget.members` /
+  `setOverageCap` / `setMemberDefaultCap` / `setMemberCap` -- say so: each
+  needs a person's token, and its docs quote the 403 a key gets ("Membership
+  is managed by a person, not an API key."). They were documented as working
+  with a key, which the platform never allowed.
+- The account, data, organisation and billing routes answer to both their
+  spellings, one class per namespace: `exports.start()` and
+  `create()`, `imports.start()` and `create()`, `account.sessions()` and
+  `sessions.list()`, `account.preferences()` / `updatePreferences()` (the
+  whole shape) and `preferences.get()` / `update()` (only the changes),
+  `account.rename()` and `update()`, `billing.plans()` and `plans.list()`,
+  `billing.switchPlan({ plan })` and `changePlan(plan)`,
+  `members.listInvites()` / `createInvite()` / `listInviteLinks()` / `join()`
+  and the rest beside `invites` and `inviteLinks`, and `org.claimDomain()`
+  / `attachIdp()` and the rest beside `org.domains` and `org.idps`.
+  `account.acceptTerms`, `org.rename`, `org.setModels`, `org.setSharing`,
+  `org.setSso`, `members.setRole` and `billing.checkout` take the bare value
+  or the object. `CREDENTIALS` names every one of them.
+- `org.domains` and `org.idps` are namespaces, so the lists are
+  `org.domains.list()` and `org.idps.list()` rather than `org.domains()`
+  and `org.idps()`.
+- The org client's class is `OrgClient`; `Org` is the org's wire type,
+  the shape `OrgProfile` names too.
+- `speech.transcribe` sends the clip under `content_type` (or
+  `contentType`), else a `Blob`'s own type, else the type its file name's
+  extension names, and refuses before sending only a type that is not
+  audio; the route's 415 judges the audio types it does not take.
+- The same wire types are one type each: `Preferences`, `SessionList`,
+  `ImportJob`, `MemberList`, `InviteList`, `DomainVerification`,
+  `PlanCatalog` and the rest. `PlanCatalog.models` holds `ModelPrice` rows
+  keyed by `id`, as the route sends them (`PlanModelPrice` names the same
+  type), and `BillingStatus.dunning` is a `Dunning`, with `pay_url`
+  (`DunningState` names the same type).
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
 

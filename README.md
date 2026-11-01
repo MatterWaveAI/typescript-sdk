@@ -168,8 +168,10 @@ const next = await client.chat.completions.create({ messages, tools });
 
 On a stream, `await stream.finalMessage()` drains it and returns the same
 message, each tool call put back together from its `delta.tool_calls`
-fragments (calls at different indexes may interleave).
-`ChatCompletionAccumulator` does the same one chunk at a time, for a client
+fragments (calls at different indexes may interleave); `await
+stream.finalCompletion()` resolves to the whole `ChatCompletion` instead, with
+the finish reason and the usage (pass `stream_options: { include_usage: true }`
+for the usage). `ChatCompletionAccumulator` does the same one chunk at a time, for a client
 that renders the text as it arrives and also wants the finish reason and usage:
 
 ```ts
@@ -224,7 +226,8 @@ console.log(stream.result?.id); // the saved assistant message
 ```
 
 `list({ filter, limit, cursor })` is one page of the sidebar (`next_cursor`
-on the result; `pages()` is an async iterator over them all), and `search(q)`,
+on the result; `pages()` is an async iterator over them all and `items()` over
+every conversation of every page), and `search(q)`,
 `get(id, { full })`, `tree(id)`, `setActiveLeaf(id, messageId)`, `fork(id,
 messageId)`, `edit(id, messageId, { content })` and `regenerate(id, messageId)`
 cover the rest of the sidebar and the branch switcher; `update(id, { title,
@@ -289,6 +292,7 @@ const bytes = await client.attachments.download(await client.attachments.get(doc
 const folder = await client.library.createFolder("Work");
 await client.library.move(conversationId, folder.id);
 const page = await client.library.search("invoice", { limit: 20 });
+for await (const hit of client.library.searchItems("invoice")) console.log(hit.title, hit.snippet);
 
 // Shares: the token is on create only; view needs no key.
 const link = await client.shares.create(conversationId, { expires_in_s: 7 * 86400 });
@@ -311,12 +315,163 @@ if (plan.writes_blocked) console.warn(plan.read_only_reason);
 `exportCsv`. `webhooks`: `list`, `create`, `get`, `update`, `delete`,
 `rotateSecret`, `test`, `deliveries`, `redeliver`. `attachments`: `upload`,
 `get`, `delete`, `download`, `limits`. `library`: `get`, `search`,
-`createFolder`, `updateFolder`, `deleteFolder`, `move`, `createTag`,
+`searchPages`, `searchItems`, `createFolder`, `updateFolder`, `deleteFolder`, `move`, `createTag`,
 `deleteTag`, `setTags`. `shares`: `create`, `list`, `listMine`, `revoke`,
 `view`. `notifications`: `list`, `read`, `readAll`. `announcements`: `list`.
 `entitlements`: `get`. `conversations` gains `report(id, kind, { message_id?,
 note? })`: `kind` is `unsafe` or `unhelpful`. A delete or revoke resolves to
 `undefined`; a missing id is a `NotFoundError`.
+
+Every cursor-paged list has a page iterator and an item iterator beside it:
+`conversations.pages` / `items`, `audit.pages` / `items` and
+`library.searchPages` / `searchItems`, each fetching the next page only when
+the previous one has been consumed. `pagesOf(fetch)` and `itemsOf(pages)` are
+the walk they share, for any list that answers `{ data, next_cursor }`:
+
+```ts
+import { itemsOf, pagesOf } from "@matterwave/sdk";
+
+for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ event: "org.sso", cursor })))) {
+  console.log(event.occurred_at, event.action);
+}
+```
+
+## Your account and your data
+
+The caller's own account, with a key (as its owner) or a person's token:
+
+```ts
+await client.account.update({ full_name: "Ada Lovelace" });
+await client.account.acceptTerms("2026-10");          // a version other than the current one is a 422
+const held = await client.account.enforcement();      // state "none", or the warning or limit and why
+await client.preferences.update({ product_updates: true }); // reads, changes what was given, writes back
+for (const session of (await client.sessions.list()).sessions) console.log(session.user_agent, session.last_seen_at);
+await client.sessions.revokeOthers();
+
+// Everything the account holds, as one JSON document (needs chat:read).
+const document = await client.exports.createAndDownload({ timeoutMs: 600_000 });
+
+// Conversations from ChatGPT's or Claude's data export (needs chat:write).
+const job = await client.imports.create({ file: exportFile, filename: "conversations.json" });
+console.log((await client.imports.wait(job.id)).conversations_created);
+
+const said = await client.speech.transcribe({ file: clip, filename: "note.ogg", language: "en" });
+await client.attachments.scan(attachmentId);          // poll until scan_status is "clean"
+const data = await client.attachments.view(attachmentId); // the bytes, through the signed link the route mints
+
+const status = await client.billing.status();         // the plan, its limits, and dunning when late
+const catalog = await new MatterWave({ apiKey: null }).plans.list(); // public: the price list and model prices
+```
+
+`account`: `update`, `acceptTerms`, `enforcement`. `preferences`: `get`,
+`update` (the route replaces the whole object, so `update` reads it first; a
+key not given keeps its value, `locale: null` clears the locale, and billing
+receipts cannot be turned off). `sessions`: `list` (a session's `id` is the
+cookie's own value, a secret to keep out of logs), `revoke`, `revokeOthers`.
+`exports`: `create`, `get`, `wait`, `download`, `createAndDownload`, and
+`document`, which builds the export inside the request; a ready export's
+`download_url` is a secret too. `imports`: `create`, `list`, `get`, `wait`.
+`speech.transcribe`, `attachments.scan` / `view`, `billing.status`,
+`plans.list` and `policy.stats` (the last two public, sent with no
+credential). `wait` throws `MatterWaveError` when the job failed or expired
+and `APITimeoutError` when `timeoutMs` passes first.
+
+The same routes answer to a second spelling, one call per route:
+`account.rename` (as `update`, the body sent whole), `account.sessions` /
+`revokeSession` / `revokeOtherSessions`, `account.preferences` /
+`updatePreferences` (the whole shape, as `preferences()` returned it),
+`exports.start` (as `create`), `imports.start` (the file sent as given) and
+`billing.plans` (as `plans.list`). `account` also has
+`completeOnboarding`, and the routes a person's token takes and a key never
+does: `changePassword`, the email change (`emailChangeState`,
+`startEmailChange`, `verifyEmailChange`, `resendEmailChange`,
+`cancelEmailChange`) and `deleteAccount` (`confirm` is `"delete my
+account"`). `passkeys`, `mfa` and `accounts` are the web app's sign-in
+ceremonies (registering a passkey or a second factor is a signed-in
+person's; the sign-in steps and the account switcher are anonymous), and
+`edge` pairs an edge box (`mint`, `devices`, `unpair` for an owner or
+admin; `pair` with the code; `push` and `status` with the device key).
+
+## Administering the organisation
+
+Members, invites, the org's settings and its billing are a person's to manage,
+not a key's: sign in as an owner or admin (see [Signing a person in](#signing-a-person-in))
+and pass the token as `accessToken`.
+
+```ts
+const admin = new MatterWave({ accessToken: signin.session(token).accessToken });
+
+for (const member of (await admin.members.list()).data) console.log(member.email, member.role, member.state);
+await admin.members.setRole(subject, "admin");
+const invite = await admin.invites.create("new.hire@example.com", { role: "member" }); // mailed; `mail` says if it went
+const link = await admin.inviteLinks.create({ role: "viewer", max_uses: 5 });          // link.url is shown this once
+
+await admin.org.setModels(["grt-nano", "grt-pro"]); // the allow-list; null allows the whole plan
+await admin.org.setSharing(false);                  // silences every share link without revoking it
+await admin.org.domains.claim("example.com");
+console.log((await admin.org.domains.challenge("example.com")).record.value); // publish, then verify()
+await admin.org.idps.attach({ name: "Okta", issuer: "https://acme.okta.com", client_id, client_secret });
+const enforced = await admin.org.setSso(true);      // owner only; store enforced.recovery.code offline
+
+console.log((await admin.billing.invoices()).data[0]?.hosted_invoice_url);
+const checkout = await admin.billing.checkout("team", { annual: true }); // send the person to checkout.url
+```
+
+`org`: `get`, `rename`, `close` (owner only, irreversible; `confirm` is the
+org's name), `models` / `setModels`, `sharing` / `setSharing`, `shares` /
+`revokeShare`, `sso` / `setSso` / `mintRecoveryCode`, `mfa` / `setMfa`, and
+`org.domains` (`list`, `claim`, `challenge`, `verify`, `release`) and
+`org.idps` (`list`, `attach`, `detach`). `members`: `list`, `setRole`,
+`transferOwnership`, `remove`. `invites`: `list`, `create`, `resend`,
+`revoke`, `lookup`, `accept`. `inviteLinks`: `list`, `create`, `revoke`,
+`lookup`, `join`. `billing`: `checkout`, `portal`, `invoices`, `changePlan`,
+`planHistory` beside `status`. `auth.device`: `lookup`, `approve`, `deny`, the
+person's side of device login. `members` carries the invites and links as
+well (`listInvites`, `createInvite({ email, role })`, `resendInvite`,
+`revokeInvite`, `lookupInvite`, `acceptInvite`, `listInviteLinks`,
+`createInviteLink`, `revokeInviteLink`, `lookupJoinLink`, `join`), `org` the
+domains and providers flat (`claimDomain({ domain })`, `domainChallenge`,
+`verifyDomain`, `releaseDomain`, `attachIdp`, `detachIdp`), and `billing`
+`switchPlan({ plan, reason })` beside `changePlan`; `org.rename`,
+`setModels`, `setSharing`, `setSso`, `members.setRole` and
+`billing.checkout` take the object (`{ name }`, `{ allowed }`, ...) as well
+as the bare value. `invites.lookup` and `inviteLinks.lookup` are
+anonymous: the token is the credential. Reading the org, its members and its
+invites is any member's; the rest is an owner's or admin's, and closing the
+org, transferring ownership and requiring SSO or two-factor an owner's alone.
+`domains.verify` resolves the route's 202 (the record is not there yet) like
+its 200, with `verified` false. One-time secrets -- an invite link's `token`
+and `url`, an SSO recovery `code` -- are on the one answer that carries them;
+keep them out of logs.
+
+## Receiving webhooks
+
+`client.webhooks` manages endpoints; `webhooks` is the receiver's half. Every
+delivery is signed twice under the endpoint's secret: `MatterWave-Signature`
+(`t=<unix>,v1=<hex>`) and the Standard Webhooks headers (`webhook-id`,
+`webhook-timestamp`, `webhook-signature`). `unwrap` accepts the delivery when
+either verifies within five minutes of the receiver's clock, and only then
+decodes the body; anything else throws `WebhookVerificationError`. It is
+WebCrypto, so it runs in Node, Deno, Workers and browsers alike.
+
+```ts
+import { WebhookVerificationError, webhooks } from "@matterwave/sdk";
+
+export async function receive(request: Request): Promise<Response> {
+  const body = await request.text(); // the raw body, not re-encoded JSON
+  try {
+    const event = await webhooks.unwrap(body, request.headers, WEBHOOK_SECRET);
+    await handle(event.type, event.data); // dedupe on event.id: delivery is at-least-once
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) return new Response(null, { status: 400 });
+    throw error;
+  }
+  return new Response(null, { status: 204 });
+}
+```
+
+`verifySignature` and `verifyStandardSignature` check one scheme each; `sign`
+and `signStandard` write them, for tests and for replaying a delivery.
 
 ## Device login
 
@@ -337,6 +492,65 @@ const signedIn = new MatterWave({ apiKey: token.access_token });
 `APITimeoutError`. `start()` and `poll(deviceCode)` are the two steps on their
 own. The SDK never stores the token: keep it in the editor's secret storage or
 the OS keyring.
+
+The key device login mints carries `chat:read` and `chat:write`, so it acts as
+the person in their conversations but not on the routes that manage the
+organisation; for those, sign the person in at the identity provider instead.
+
+## Signing a person in
+
+The routes that manage the organisation -- members and invites, the org's
+settings, its billing, the audit trail, the org's instructions, budget caps, and
+the operator console -- gate on the caller's membership, not a key scope, and answer every API key 403 "Membership is managed
+by a person, not an API key." A person's access token from the deployment's
+identity provider is what they take. Pass one as `accessToken`, the token itself
+or a function that returns it (or a promise of it); the client sends it where a
+key would go, and every other route takes it too.
+
+```ts
+import { MatterWave } from "@matterwave/sdk";
+
+const signin = new MatterWave({ baseUrl: "https://your-matterwave.example" }).auth.person;
+const token = await signin.login({
+  onCode: (code) => console.log(`Open ${code.verification_uri_complete}`),
+  timeoutMs: 300_000,
+});
+const session = signin.session(token, { onRefresh: storeInSecretStorage });
+const admin = new MatterWave({ baseUrl: "https://your-matterwave.example", accessToken: session.accessToken });
+console.log((await admin.audit.list({ event: "org.sso" })).data);
+```
+
+`auth.person.login` is the device authorization grant (RFC 8628) against the
+identity provider's native client, which `/api/auth-config` names; a deployment
+without one throws `MatterWaveError`. It asks for `offline_access` beside the
+deployment's scopes, so the `PersonToken` carries a refresh token, and
+`session(token).accessToken` hands over the access token and refreshes it a
+minute before it expires -- once, however many calls ask at that moment --
+passing each new set to `onRefresh` so the caller can store the rotated refresh
+token. `start()`, `poll(deviceCode)` and `refresh(token)` are the steps on
+their own. A token from anywhere else -- an agent's or a service account's,
+issued by the same identity provider for the deployment's project -- works the
+same way: `accessToken: "eyJ..."`.
+
+### Which credential each method needs
+
+`CREDENTIALS` maps every operation to what its route accepts, from the
+platform's route document (the drift test holds the two together):
+
+| `CREDENTIALS` | Accepts | Methods |
+| --- | --- | --- |
+| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view`, `plans.list`, `billing.plans`, `policy.stats`, `invites.lookup`, `inviteLinks.lookup`, `members.lookupInvite` / `lookupJoinLink`, `passkeys.startLogin` / `finishLogin`, `mfa.verify` / `enrolStart` / `enrolConfirm`, `accounts`, `edge.pair` |
+| `key` | any API key, or a person's token | `me`, `account` (but its password, email and deletion methods), `preferences`, `sessions`, `speech`, `billing.status`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get`, `edge.status` |
+| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, `exports`, the conversation reads, `messages.listFeedback`, `shares.list` |
+| `key:chat:write` | a key with `chat:write`, or a person's token | `imports`, `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
+| `key:keys:manage` | a key with `keys:manage`, or a person's token | `keys.create` / `update` / `rotate` / `revoke` |
+| `key:usage:read` | a key with `usage:read`, or a person's token | `usage.org`, `usage.exportCsv` |
+| `key:webhooks:manage` | a key with `webhooks:manage`, or a person's token | `webhooks` |
+| `key:conversations:import` | a key with `conversations:import` (an edge box's device key), or a person's token | `edge.push` |
+| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `account.changePassword`, the email change and `deleteAccount`, `org`, `members`, `invites` and `inviteLinks` (but their `lookup`s), `billing` (but `status` and `plans`), `passkeys` and `mfa` (but the sign-in steps), `edge.mint` / `devices` / `unpair`, `auth.device.lookup` / `approve` / `deny`, `admin` |
+
+A scope never widens a role: the org routes still need the org role they ask of a
+person, whichever credential carries it.
 
 ## Connect your editor to MatterWave
 
@@ -492,6 +706,32 @@ A configuration mistake (no base URL, a negative retry count) is a
 `ValueError` as well. Python checks other arguments with `ValueError`, as
 Python does; TypeScript throws `MatterWaveConfigError` for those too.
 
+## Examples and reference
+
+Each file in `examples/` runs as a script (`npx tsx examples/<name>.ts`) and
+reads `MATTERWAVE_BASE_URL` and `MATTERWAVE_API_KEY`; each exports its `run`,
+which `tests/examples.test.ts` calls against a stubbed `fetch`.
+
+| File | Shows |
+| --- | --- |
+| `chat.ts` | one completion and its token count |
+| `streaming.ts` | text as it arrives, then the finish reason and usage |
+| `structured-output.ts` | `chat.completions.parse` with a zod schema |
+| `webhook-receiver.ts` | a fetch-style handler that verifies each delivery with `webhooks.unwrap` |
+| `device-sign-in.ts` | device sign-in, for an API key or for a person's own token |
+| `pagination.ts` | `items()`, `searchItems()` and `pagesOf` / `itemsOf` |
+| `mcp-via-sdk.ts` | the `/mcp` endpoint through `client.mcp` |
+
+The API reference is generated with typedoc over the two entry points; the
+`docs` workflow builds it on every push, fails on any typedoc warning, and
+uploads it as the `api-reference` artifact. To build and check it locally:
+
+```
+pnpm build
+pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts   --excludeInternal --treatWarningsAsErrors --out reference --json reference.json
+node scripts/check-reference.mjs reference.json
+```
+
 ## Development
 
 ```
@@ -507,12 +747,16 @@ exported OpenAPI document, `docs/developers/openapi.json` in the app repo,
 through the snapshot in `tests/openapi.json`, so a new operation on the API
 and a new method here have to land together. That document is the `/v1`
 contract; the conversation, device-login and native routes are listed apart in
-`APP_OPERATIONS` and checked against it only where it names their paths.
-`tests/native.test.ts` also holds each native route in `APP_OPERATIONS` to the
-routers in `api/matterwave`, when they are beside the SDK. The
-conversation stream's frames are the exception: the document lists them under
-`x-sse-events`, and `CONVERSATION_EVENTS` is held to that list, event by event
-and field by field.
+`APP_OPERATIONS`. The conversation stream's frames are the exception: the
+document lists them under `x-sse-events`, and `CONVERSATION_EVENTS` is held to
+that list, event by event and field by field.
+
+`tests/route-drift.test.ts` holds every route the SDK calls to the platform's
+whole route document, `docs/developers/openapi-full.json`, vendored as
+`tests/openapi-full.json` at the platform commit `tests/openapi-full.pin.json`
+names. It fails when a route the SDK calls moves or goes, and when the document
+gains a route that is neither wrapped here nor listed, with the reason, in
+`tests/routes-not-covered.json`.
 
 ### Refreshing the OpenAPI snapshot
 
@@ -529,3 +773,25 @@ pnpm openapi:refresh --check https://<host>/<path>/openapi.json
 In CI, run the `ci` workflow by hand (`workflow_dispatch`) with an
 `openapi_source` URL: it refreshes the snapshot from it before the checks, so
 the run says whether this client still matches that API.
+
+### Refreshing the route document
+
+`scripts/refresh-openapi-full.mjs` (`pnpm openapi:refresh-full`) vendors the
+whole route document from a checkout of the platform repo, at a branch or
+commit (`--ref`, `HEAD` by default), with the routes the platform serves but
+leaves out of it (the operator console, the edge mirror, the sign-in forms) and
+the commit, in `tests/openapi-full.pin.json`. `--check` writes nothing and
+exits 1 when the vendored pair is behind that ref. The Python SDK's
+`scripts/refresh_openapi_full.py` writes the same bytes.
+
+```
+pnpm openapi:refresh-full ../matterwave-app --ref develop
+pnpm openapi:refresh-full ../matterwave-app --ref develop --check
+```
+
+`scripts/check-live-routes.mjs <deployment>/openapi.json` (after `pnpm build`)
+holds a running deployment to the same pair: every route the SDK calls is
+served, every pinned route is still served, and every served route is pinned or
+internal. The `route-drift` workflow runs it daily against the repository
+variable `MATTERWAVE_LIVE_OPENAPI_URL` and opens an issue with the report on
+drift.

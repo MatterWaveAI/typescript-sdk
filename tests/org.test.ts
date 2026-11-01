@@ -280,7 +280,7 @@ describe("org", () => {
 
   it("lists the domains", async () => {
     const { fetch, seen } = stubFetch([json({ data: [domainRow(), domainRow({ domain: "other.example", verified: true })] })]);
-    const listed = await client(fetch).org.domains();
+    const listed = await client(fetch).org.domains.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/domains`);
     expect(listed.data).toHaveLength(2);
     expect(listed.data[1]!.verified).toBe(true);
@@ -288,7 +288,7 @@ describe("org", () => {
 
   it("lists the identity providers without their secrets", async () => {
     const { fetch, seen } = stubFetch([json({ data: [idpRow()] })]);
-    const listed = await client(fetch).org.idps();
+    const listed = await client(fetch).org.idps.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/idp`);
     expect(listed.data[0]!.provider).toBe("okta");
     expect(JSON.stringify(listed)).not.toContain("secret");
