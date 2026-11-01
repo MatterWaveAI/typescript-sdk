@@ -218,11 +218,16 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
     }
   }
 
-  /** Drain the turn and return the whole answer: every delta joined. The accumulation helper -- iterate for the frames, call this for the whole. */
-  async accumulate(): Promise<string> {
+  /** Drain the turn and return the whole answer: every delta joined. Iterate for the frames, call this for the whole. */
+  async finalText(): Promise<string> {
     let text = "";
     for await (const piece of this.text()) text += piece;
     return text;
+  }
+
+  /** @deprecated The earlier name of `finalText`, kept as its alias. */
+  accumulate(): Promise<string> {
+    return this.finalText();
   }
 
   abort(): void {

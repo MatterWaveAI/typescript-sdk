@@ -170,8 +170,18 @@ export interface ClientOptions {
 export interface RequestOptions {
   /** Aborts the request, and a stream being read. */
   signal?: AbortSignal;
-  /** Headers for this one call. */
+  /** Headers for this one call, over the client's and the operation's. */
+  extraHeaders?: Record<string, string>;
+  /** The earlier name of `extraHeaders`, kept as its alias; `extraHeaders` wins where both name a header. */
   headers?: Record<string, string>;
+  /** Query parameters added to this call's URL: a filter the API knows and this client does not yet. */
+  extraQuery?: Record<string, string>;
+  /**
+   * Fields merged into this call's JSON body, over the ones the method sets:
+   * a field the API knows and this client does not yet. Refused for a GET,
+   * which has no body, and for an upload, whose body is a form.
+   */
+  extraBody?: Record<string, unknown>;
   /**
    * Per attempt, for this one call, overriding the client's `timeoutMs`:
    * a single long call can take minutes without holding the whole client
@@ -296,11 +306,14 @@ export function resolveBaseUrl(baseUrl: string | null | undefined): string {
   return value;
 }
 
-/** A client option that cannot be used: no origin, a bad origin, a negative retry count. */
-export class MatterWaveConfigError extends Error {
+/**
+ * A client option or argument that cannot be used: no origin, a bad origin,
+ * a negative retry count, an id that would change the path. A
+ * `MatterWaveError`, so one `catch` covers everything the client throws.
+ */
+export class MatterWaveConfigError extends MatterWaveError {
   constructor(message: string) {
     super(message);
-    this.name = "MatterWaveConfigError";
   }
 }
 
@@ -500,11 +513,16 @@ export class Stream implements AsyncIterable<WithRequestId<ChatCompletionChunk>>
     }
   }
 
-  /** Drain the stream and return the whole answer: every chunk's text joined. The accumulation helper -- iterate for the pieces, call this for the whole. */
-  async accumulate(): Promise<string> {
+  /** Drain the stream and return the whole answer: every chunk's text joined. Iterate for the pieces, call this for the whole. */
+  async finalText(): Promise<string> {
     let text = "";
     for await (const piece of this.text()) text += piece;
     return text;
+  }
+
+  /** @deprecated The earlier name of `finalText`, kept as its alias. */
+  accumulate(): Promise<string> {
+    return this.finalText();
   }
 
   /**
@@ -887,8 +905,11 @@ export class MatterWave {
     const idempotencyKey = READ_METHODS.has(prepared.method)
       ? null
       : (options.idempotencyKey ?? this.idempotencyKey ?? newIdempotencyKey());
-    const headers = this.headersFor(prepared, options.headers, idempotencyKey);
-    const url = this.baseUrl + prepared.path;
+    // The call's extra fields join the body before anything reads it, so the
+    // content type follows the body that is actually sent.
+    const sending: Prepared = { ...prepared, body: withExtraBody(prepared, options.extraBody) };
+    const headers = this.headersFor(sending, { ...options.headers, ...options.extraHeaders }, idempotencyKey);
+    const url = withQuery(this.baseUrl + prepared.path, options.extraQuery);
     // The call's own bounds win, then the operation's (an MCP tool that
     // runs a whole model turn), then the client's defaults.
     const maxRetries = options.maxRetries ?? this.maxRetries;
@@ -898,11 +919,7 @@ export class MatterWave {
     // A FormData goes as it is, so fetch writes the multipart boundary; it
     // can be sent again on a retry, unlike a stream.
     const body =
-      prepared.body === undefined
-        ? undefined
-        : isForm(prepared.body)
-          ? prepared.body
-          : JSON.stringify(prepared.body);
+      sending.body === undefined ? undefined : isForm(sending.body) ? sending.body : JSON.stringify(sending.body);
     for (let attempt = 0; ; attempt += 1) {
       if (this.onRequest) this.onRequest({ method: prepared.method, path: prepared.path });
       const controller = new AbortController();
@@ -994,6 +1011,24 @@ export class MatterWave {
     }
     return headers;
   }
+}
+
+/** The URL with the call's extra query parameters added after any it already has. */
+function withQuery(url: string, query: Record<string, string> | undefined): string {
+  if (!query || Object.keys(query).length === 0) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}${new URLSearchParams(query).toString()}`;
+}
+
+/** The body with the call's extra fields merged over it; a GET or an upload refuses them. */
+function withExtraBody(prepared: Prepared, extra: Record<string, unknown> | undefined): unknown {
+  if (!extra || Object.keys(extra).length === 0) return prepared.body;
+  if (prepared.method === "GET") {
+    throw new MatterWaveConfigError(`${prepared.method} ${prepared.path} has no body to add extraBody to.`);
+  }
+  if (isForm(prepared.body)) {
+    throw new MatterWaveConfigError(`${prepared.method} ${prepared.path} is an upload; extraBody cannot join its form.`);
+  }
+  return { ...((prepared.body as Record<string, unknown> | undefined) ?? {}), ...extra };
 }
 
 function isForm(body: unknown): body is FormData {
