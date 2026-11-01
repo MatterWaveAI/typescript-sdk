@@ -49,3 +49,5 @@ jobs:
         env:
           MATTERWAVE_AGENT_CONTRACT: ../python-sdk/src/matterwave_sdk/agent/contract.json
       - run: pnpm build
+      # Each module format resolves to declarations of its own format.
+      - run: pnpm attw

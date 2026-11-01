@@ -31,15 +31,26 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./agent": {
-      "types": "./dist/agent.d.ts",
-      "import": "./dist/agent.js",
-      "require": "./dist/agent.cjs"
-    }
+      "import": {
+        "types": "./dist/agent.d.ts",
+        "default": "./dist/agent.js"
+      },
+      "require": {
+        "types": "./dist/agent.d.cts",
+        "default": "./dist/agent.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
@@ -62,10 +73,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src tests",
+    "attw": "attw --pack .",
     "agent:check": "vitest run tests/agent-contract.test.ts",
     "openapi:refresh": "node scripts/refresh-openapi.mjs"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.0.0",
     "eslint": "^10.11.0",
