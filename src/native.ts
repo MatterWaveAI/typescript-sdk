@@ -946,8 +946,8 @@ export class Mfa extends Resource {
     return this.call("POST", "/api/me/mfa/recovery-codes", params, options);
   }
 
-  /** `POST /api/auth/mfa`: the code step of a sign-in. A recovery code is burned whether or not the sign-in then finishes. Anonymous -- the challenge is the credential. */
-  verify(params: MfaLoginParams, options: RequestOptions = {}): Promise<WithRequestId<MfaVerified>> {
+  /** `POST /api/auth/mfa`: the code step of a sign-in, on a code or a recovery code; the answer is the redirect that finishes it. A recovery code is burned whether or not the sign-in then finishes. Anonymous -- the challenge is the credential. */
+  verifyLogin(params: MfaLoginParams, options: RequestOptions = {}): Promise<WithRequestId<MfaVerified>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     checkProof(params);
     if (params.code !== undefined) checkTotpCode(params.code, "code");
@@ -955,13 +955,13 @@ export class Mfa extends Resource {
   }
 
   /** `POST /api/auth/mfa/enrol/start`: the org-policy path -- an authenticator for a sign-in parked on `mfa_enrolment_required`. Only a challenge minted for enrolment opens this door. Anonymous. */
-  enrolStart(params: { challenge: string }, options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
+  startLoginEnrolment(params: { challenge: string }, options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     return this.callAnon("POST", "/api/auth/mfa/enrol/start", params, options);
   }
 
-  /** `POST /api/auth/mfa/enrol/confirm`: confirm the registration, hand out the recovery codes, and hand back a fresh challenge -- the sign-in still finishes through `verify` with the next code. Anonymous. */
-  enrolConfirm(params: MfaEnrolConfirmParams, options: RequestOptions = {}): Promise<WithRequestId<MfaEnrolConfirmed>> {
+  /** `POST /api/auth/mfa/enrol/confirm`: confirm the registration, hand out the recovery codes, and hand back a fresh challenge -- the sign-in still finishes through `verifyLogin` with the next code. Anonymous. */
+  confirmLoginEnrolment(params: MfaEnrolConfirmParams, options: RequestOptions = {}): Promise<WithRequestId<MfaEnrolConfirmed>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     checkTotpCode(params.code, "code");
     return this.callAnon("POST", "/api/auth/mfa/enrol/confirm", params, options);
@@ -1028,7 +1028,7 @@ function checkConversationIds(params: EdgePushParams): void {
  * Settings -> Devices, the box redeems it once for a key that can push
  * conversations and nothing else, and the box pushes over that key.
  *
- * **Who may call what.** `mint`, `devices` and `unpair` are owner or admin
+ * **Who may call what.** `mintPairingCode`, `devices` and `unpair` are owner or admin
  * by membership row and refuse an API key -- pairing is a sign-in for a
  * box, a person's act. `pair` is anonymous: the code is the credential,
  * sixty bits against a ten-minute life. `push` and `status` take the
@@ -1036,9 +1036,9 @@ function checkConversationIds(params: EdgePushParams): void {
  * leaked one can add conversations to that one account and nothing else);
  * `status` answers any principal, a session included.
  */
-export class Edge extends Resource {
+export class Sync extends Resource {
   /** `POST /api/sync/pairings` (201): a code the box redeems once. Ten minutes to live; rate-limited per admin. Owner or admin, by session. */
-  mint(params: MintPairingParams, options: RequestOptions = {}): Promise<WithRequestId<PairingCode>> {
+  mintPairingCode(params: MintPairingParams, options: RequestOptions = {}): Promise<WithRequestId<PairingCode>> {
     if (!params.name?.trim()) throw new MatterWaveConfigError("Name the box.");
     return this.call("POST", "/api/sync/pairings", params, options);
   }

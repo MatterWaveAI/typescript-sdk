@@ -71,20 +71,13 @@ export interface Preferences {
   notifications: NotificationPreferences;
 }
 
-/**
- * What `preferences.update` changes, flat (`product_updates`) or nested as
- * the route spells them (`email`, `notifications`): a key left out keeps
- * its value. `account.updatePreferences` sends the nested shape as given,
- * the whole of it, as `preferences()` returned it.
- */
+/** What `preferences.update` changes: a key left out keeps its value. */
 export interface UpdatePreferencesParams {
   /** A BCP-47 tag (`en`, `en-GB`); `null` clears it, back to the browser's. */
   locale?: string | null;
   product_updates?: boolean;
   usage_alerts?: boolean;
   budget_warn?: boolean;
-  email?: Partial<EmailPreferences>;
-  notifications?: Partial<NotificationPreferences>;
 }
 
 /** One signed-in browser. */
@@ -209,8 +202,6 @@ export interface TranscribeParams {
    * mp4/m4a, mp3, wav, flac and aac.
    */
   content_type?: string;
-  /** `content_type` under its other spelling. */
-  contentType?: string;
 }
 
 /**

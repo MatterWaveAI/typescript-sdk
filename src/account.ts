@@ -10,11 +10,11 @@
  *
  * Most routes here take an API key, acting as its owner, or a person's
  * token: exports need a key with `chat:read`, imports one with `chat:write`.
- * `plans.list`, `billing.plans` and `policy.stats` are public and send no
- * credential. The exceptions need a person's token (or the web app's
- * signed-in session) and refuse every API key: billing's administration
- * (`checkout`, `portal`, `invoices`, `changePlan`, `switchPlan`,
- * `planHistory`), and the account's password, email and deletion routes.
+ * `plans.list` and `policy.stats` are public and send no credential. The
+ * exceptions need a person's token (or the web app's signed-in session) and
+ * refuse every API key: billing's administration (`checkout`, `portal`,
+ * `invoices`, `changePlan`, `planHistory`), and the account's password,
+ * email and deletion routes.
  */
 
 import type {
@@ -39,7 +39,6 @@ import type {
   WaitOptions,
 } from "./account-types.js";
 import type {
-  AcceptTermsParams,
   AccountDeleted,
   DeleteAccountParams,
   EmailChangeCancelled,
@@ -47,17 +46,10 @@ import type {
   EmailChanged,
   EmailCodeSent,
   Entitlements,
-  ExportJob,
-  ExportJobStatus,
   OnboardingComplete,
   PasswordChangeParams,
   PasswordChanged,
-  RenameParams,
-  SessionRevoked,
-  SessionsRevokedOthers,
   StartEmailChangeParams,
-  SwitchPlanParams,
-  UploadImportParams,
   VerifyEmailChangeParams,
 } from "./native-types.js";
 import type { BillingLink, ChangePlanParams, CheckoutParams, InvoiceList, PlanHistory } from "./org-types.js";
@@ -113,21 +105,19 @@ const ACCEPTED_AUDIO_TYPES: readonly string[] = [
 
 /**
  * The whole object to PUT: the current settings with the changes laid over
- * them, given flat (`product_updates`) or nested as the route spells them
- * (`email.product_updates`). A key left out keeps its value; `locale: null`
- * clears it.
+ * them. A key left out keeps its value; `locale: null` clears it.
  */
 function mergedPreferences(current: Preferences, changes: UpdatePreferencesParams): Preferences {
   return {
     locale: changes.locale === undefined ? current.locale : changes.locale,
     email: {
-      product_updates: changes.product_updates ?? changes.email?.product_updates ?? current.email.product_updates,
-      usage_alerts: changes.usage_alerts ?? changes.email?.usage_alerts ?? current.email.usage_alerts,
+      product_updates: changes.product_updates ?? current.email.product_updates,
+      usage_alerts: changes.usage_alerts ?? current.email.usage_alerts,
       // Receipts cannot be turned off; the route refuses false.
       billing_receipts: true,
     },
     notifications: {
-      budget_warn: changes.budget_warn ?? changes.notifications?.budget_warn ?? current.notifications.budget_warn,
+      budget_warn: changes.budget_warn ?? current.notifications.budget_warn,
     },
   };
 }
@@ -175,9 +165,9 @@ function checkNewPassword(newPassword: string): void {
 /**
  * The caller's own account: their name, the terms they accepted, whether
  * moderation holds them, and beyond that the password, the email address,
- * the sessions, the preferences, onboarding and deletion. Every route here
- * is about the caller and nobody else -- the subject in the principal is
- * the only key any of them use.
+ * onboarding and deletion. Every route here is about the caller and nobody
+ * else -- the subject in the principal is the only key any of them use.
+ * The sessions are `client.sessions`, the preferences `client.preferences`.
  *
  * The password, email and deletion routes need a person's token (or the
  * web app's signed-in session), never an API key: a key acts for its owner,
@@ -194,25 +184,15 @@ export class Account extends Resource {
     return this.call("PATCH", "/api/me", { full_name: params.full_name }, options);
   }
 
-  /** `PATCH /api/me`: rename, as `update` does, with the whole body sent as given. Whitespace-collapsed by the server. */
-  rename(params: RenameParams, options: RequestOptions = {}): Promise<WithRequestId<UpdatedName>> {
-    if (!params.full_name?.trim()) throw new MatterWaveConfigError("full_name must not be empty");
-    if (params.full_name.length > 1000) {
-      throw new MatterWaveConfigError("full_name must be at most 1000 characters");
-    }
-    return this.call("PATCH", "/api/me", params, options);
-  }
-
   /**
-   * `POST /api/me/accept-terms`: accept the terms `version` names, given
-   * as the version itself or as `{ version }`. Only the current version is
-   * accepted -- a version other than the current one is the server's 422,
-   * which says the current one -- and the answer says which was recorded.
+   * `POST /api/me/accept-terms`: accept the terms `version` names. Only the
+   * current version is accepted -- a version other than the current one is
+   * the server's 422, which says the current one -- and the answer says
+   * which was recorded.
    */
-  acceptTerms(version: string | AcceptTermsParams, options: RequestOptions = {}): Promise<WithRequestId<TermsAcceptance>> {
-    const named = typeof version === "string" ? version : version?.version;
-    if (!named?.trim()) throw new MatterWaveConfigError("version must be the terms version the person accepted");
-    return this.call("POST", "/api/me/accept-terms", { version: named }, options);
+  acceptTerms(version: string, options: RequestOptions = {}): Promise<WithRequestId<TermsAcceptance>> {
+    if (!version?.trim()) throw new MatterWaveConfigError("version must be the terms version the person accepted");
+    return this.call("POST", "/api/me/accept-terms", { version }, options);
   }
 
   /**
@@ -238,46 +218,6 @@ export class Account extends Resource {
     if (!params.current_password) throw new MatterWaveConfigError("current_password must be non-empty");
     checkNewPassword(params.new_password);
     return this.call("POST", "/api/me/password", params, options);
-  }
-
-  /** `GET /api/me/sessions`: the caller's live sessions, the one making the request flagged. `sessions.list` is the same read. */
-  sessions(options: RequestOptions = {}): Promise<WithRequestId<SessionList>> {
-    return this.call("GET", "/api/me/sessions", undefined, options);
-  }
-
-  /**
-   * `DELETE /api/me/sessions/{id}`: sign one session out. The caller's own
-   * is allowed -- it is "sign out" with the row revoked as well.
-   * `NotFoundError` for one that is not the caller's.
-   */
-  revokeSession(sessionId: string, options: RequestOptions = {}): Promise<WithRequestId<SessionRevoked>> {
-    return this.call("DELETE", `/api/me/sessions/${segment("sessionId", sessionId)}`, undefined, options);
-  }
-
-  /** `POST /api/me/sessions/revoke-others`: every session but this one; the answer counts them. */
-  revokeOtherSessions(options: RequestOptions = {}): Promise<WithRequestId<SessionsRevokedOthers>> {
-    return this.call("POST", "/api/me/sessions/revoke-others", undefined, options);
-  }
-
-  /** `GET /api/me/preferences`: the caller's preferences, defaults applied where nothing was saved. `preferences.get` is the same read. */
-  preferences(options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
-    return this.call("GET", "/api/me/preferences", undefined, options);
-  }
-
-  /**
-   * `PUT /api/me/preferences`: the whole shape, validated by the server --
-   * an unknown locale is a 422 before anything is written. Send what
-   * `preferences()` returned; `billing_receipts` stays `true`, because
-   * receipts are transactional mail the server refuses to switch off.
-   * `preferences.update` instead takes only the changes and keeps the rest.
-   */
-  updatePreferences(params: UpdatePreferencesParams, options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
-    if (params.locale !== undefined && params.locale !== null) {
-      if (params.locale.length > LANGUAGE_MAX_LENGTH || !/^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/.test(params.locale.trim())) {
-        throw new MatterWaveConfigError("locale must be a BCP-47 language tag such as en or en-GB");
-      }
-    }
-    return this.call("PUT", "/api/me/preferences", params, options);
   }
 
   /** `GET /api/me/email`: the sign-in address and any change still waiting for its code, so a client can come back to the code step after a reload. A person's token or a signed-in session. */
@@ -327,7 +267,7 @@ export class Account extends Resource {
    * `confirm` is the phrase `"delete my account"`, exactly, checked here
    * and again by the server. A person's token or a signed-in session.
    */
-  deleteAccount(params: DeleteAccountParams, options: RequestOptions = {}): Promise<WithRequestId<AccountDeleted>> {
+  delete(params: DeleteAccountParams, options: RequestOptions = {}): Promise<WithRequestId<AccountDeleted>> {
     if (params.confirm?.trim().toLowerCase() !== DELETE_ACCOUNT_PHRASE) {
       throw new MatterWaveConfigError(`Confirmation phrase must be "${DELETE_ACCOUNT_PHRASE}".`);
     }
@@ -381,8 +321,8 @@ function exportPath(exportId: string, suffix = ""): string {
 
 /**
  * `/api/me/export`: everything the account holds, as one JSON document.
- * `create` (or `start`) begins a job -- three an hour, one at a time, 409
- * while one is building -- and `wait` follows it; `download` fetches a
+ * `create` begins a job -- three an hour, one at a time, 409 while one is
+ * building -- and `wait` follows it; `download` fetches a
  * ready one, downloadable for a week; `createAndDownload` is the three in
  * one. `document` builds it inside the request instead.
  */
@@ -403,17 +343,12 @@ export class Exports extends Resource {
     return this.call("POST", "/api/me/export", undefined, options);
   }
 
-  /** `POST /api/me/export` (202): queue the build, as `create` does. The answer is the row, `pending`. */
-  start(options: RequestOptions = {}): Promise<WithRequestId<ExportJob>> {
-    return this.call("POST", "/api/me/export", undefined, options);
-  }
-
   /**
    * `GET /api/me/export/{id}`: the export's state, with a fresh signed
    * `download_url` once it is ready (null before that). Another person's
    * export is the same 404 as none.
    */
-  get(exportId: string, options: RequestOptions = {}): Promise<WithRequestId<ExportJobStatus>> {
+  get(exportId: string, options: RequestOptions = {}): Promise<WithRequestId<AccountExport>> {
     return this.call("GET", exportPath(exportId), undefined, options);
   }
 
@@ -445,7 +380,7 @@ export class Exports extends Resource {
    * the client's credential: it takes both.
    */
   download(
-    exported: AccountExport | Pick<ExportJobStatus, "download_url"> | string,
+    exported: AccountExport | Pick<AccountExport, "download_url"> | string,
     options: RequestOptions = {},
   ): Promise<ArrayBuffer> {
     const url = typeof exported === "string" ? exported : exported.download_url;
@@ -483,20 +418,6 @@ export class Imports extends Resource {
     if (file.size > IMPORT_LIMIT_BYTES) throw new MatterWaveConfigError("an import is 100 MiB at most");
     const form = new FormData();
     form.append("file", file, params.filename);
-    return this.call("POST", "/api/me/imports", form, options);
-  }
-
-  /**
-   * `POST /api/me/imports` (202): the file as given (a `Blob` keeps its own
-   * type), checked by the server to be an export it reads, and the work
-   * queued. The answer is the row: what was found (`source`,
-   * `conversations_total`) and that it is pending.
-   */
-  start(params: UploadImportParams, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
-    if (!params.filename) throw new MatterWaveConfigError("filename must be non-empty");
-    const blob = params.file instanceof Blob ? params.file : new Blob([params.file as BlobPart]);
-    const form = new FormData();
-    form.append("file", blob, params.filename);
     return this.call("POST", "/api/me/imports", form, options);
   }
 
@@ -541,16 +462,16 @@ export class Speech extends Resource {
    * The words in an audio clip of up to 10 MiB (webm, ogg, mp4/m4a, mp3,
    * wav, flac or aac). `language` is a BCP-47 hint such as `en`. The route
    * refuses a part that does not say it is audio (415), so the clip is
-   * sent under `content_type` (or `contentType`) when given, else a
-   * `Blob`'s own type, else the type its file name's extension names. A
-   * type that is not audio at all is refused here, before sending.
+   * sent under `content_type` when given, else a `Blob`'s own type, else
+   * the type its file name's extension names. A type that is not audio at
+   * all is refused here, before sending.
    */
   transcribe(params: TranscribeParams, options: RequestOptions = {}): Promise<WithRequestId<Transcription>> {
     const filename = params.filename || (params.file instanceof File ? params.file.name : "") || "clip";
     const dot = filename.lastIndexOf(".");
     const suffix = dot >= 0 ? filename.slice(dot).toLowerCase() : "";
     const own = params.file instanceof Blob ? params.file.type : "";
-    const kind = params.content_type || params.contentType || own || AUDIO_TYPES[suffix] || "";
+    const kind = params.content_type || own || AUDIO_TYPES[suffix] || "";
     const mediaType = kind.split(";")[0]!.trim().toLowerCase();
     if (!mediaType) throw new MatterWaveConfigError(`name the clip's content_type; ${filename} does not say it`);
     if (!ACCEPTED_AUDIO_TYPES.includes(mediaType) && !mediaType.startsWith("audio/")) {
@@ -582,11 +503,6 @@ export class Speech extends Resource {
  * code answers 402 pointing at checkout).
  */
 export class Billing extends Resource {
-  /** `GET /api/plans`: the public catalog, as `plans.list` reads it. No credential is sent. */
-  plans(options: RequestOptions = {}): Promise<WithRequestId<PlanCatalog>> {
-    return this.callAnon("GET", "/api/plans", undefined, options);
-  }
-
   /**
    * `GET /api/billing/status`: the plan and its limits, whether billing is
    * on, how the org pays, and the dunning schedule when a payment is late.
@@ -597,25 +513,13 @@ export class Billing extends Resource {
   }
 
   /**
-   * `POST /api/billing/checkout`: a Stripe Checkout page for a plan, named
-   * on its own (`checkout("pro", { annual: true })`) or in the body
-   * (`checkout({ plan: "pro" })`); monthly unless `annual`. The plan changes
-   * once Stripe confirms the payment. `ConflictError` while an invoice is
-   * overdue.
+   * `POST /api/billing/checkout`: a Stripe Checkout page for `plan`, monthly
+   * unless `annual`. The plan changes once Stripe confirms the payment.
+   * `ConflictError` while an invoice is overdue.
    */
-  checkout(plan: string, params?: CheckoutParams, options?: RequestOptions): Promise<WithRequestId<BillingLink>>;
-  checkout(params: CheckoutParams & { plan: string }, options?: RequestOptions): Promise<WithRequestId<BillingLink>>;
-  checkout(
-    plan: string | (CheckoutParams & { plan: string }),
-    second: CheckoutParams | RequestOptions = {},
-    third: RequestOptions = {},
-  ): Promise<WithRequestId<BillingLink>> {
-    const positional = typeof plan === "string";
-    const params = (positional ? second : plan) as CheckoutParams;
-    const code = positional ? plan : plan.plan;
-    const options = positional ? third : (second as RequestOptions);
-    if (!code?.trim()) throw new MatterWaveConfigError("plan must be a plan code, such as `pro`");
-    return this.call("POST", "/api/billing/checkout", { plan: code, annual: params.annual ?? false }, options);
+  checkout(plan: string, params: CheckoutParams = {}, options: RequestOptions = {}): Promise<WithRequestId<BillingLink>> {
+    if (!plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code, such as `pro`");
+    return this.call("POST", "/api/billing/checkout", { plan, annual: params.annual ?? false }, options);
   }
 
   /** `POST /api/billing/portal`: the Stripe customer portal, where the card and invoices are managed. */
@@ -639,12 +543,6 @@ export class Billing extends Resource {
     const body: Record<string, unknown> = { plan };
     if (params.reason != null) body.reason = params.reason;
     return this.call("PUT", "/api/plan", body, options);
-  }
-
-  /** `PUT /api/plan`: the move `changePlan` makes, with the plan and the reason in one body. */
-  switchPlan(params: SwitchPlanParams, options: RequestOptions = {}): Promise<WithRequestId<Entitlements>> {
-    if (!params.plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code, such as `free`");
-    return this.changePlan(params.plan, { reason: params.reason ?? undefined }, options);
   }
 
   /** `GET /api/plan/history`: the latest 50 plan and status changes, newest first. */

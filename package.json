@@ -2,7 +2,7 @@
   "name": "@matterwave/sdk",
   "version": "0.5.0",
   "description": "TypeScript client for the MatterWave API (the OpenAI-compatible /v1 surface)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "MatterWave AI Contributors",
   "keywords": [
     "matterwave",
@@ -63,7 +63,9 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "VERSIONING.md"
+    "VERSIONING.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "sideEffects": false,
   "engines": {

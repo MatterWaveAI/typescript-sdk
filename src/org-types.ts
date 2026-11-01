@@ -106,10 +106,8 @@ export interface InviteList {
   data: Invite[];
 }
 
-/** The options of `invites.create`, and the body of `members.createInvite`. */
+/** The options of `invites.create`. */
 export interface CreateInviteParams {
-  /** The address to invite: `members.createInvite` reads it here, `invites.create` as its first argument. */
-  email?: string;
   /** `member` when omitted; only an owner invites an owner. */
   role?: OrgRole;
 }
@@ -319,7 +317,7 @@ export interface IdentityProviderList {
   data: IdentityProvider[];
 }
 
-/** The body of `org.idps.attach` and `org.attachIdp`: an OIDC provider. */
+/** The body of `org.idps.attach`: an OIDC provider. */
 export interface AttachIdpParams {
   /** `oidc`, the only kind there is; sent as that when omitted. */
   kind?: "oidc";

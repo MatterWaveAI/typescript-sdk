@@ -10,6 +10,8 @@ import { describe, expect, it } from "vitest";
 
 type Condition = { types: string; default: string };
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+  license: string;
+  files: string[];
   exports: Record<string, string | { import: Condition; require: Condition }>;
 };
 
@@ -34,5 +36,14 @@ describe("the exports map", () => {
       expect(Object.keys(conditions.import)[0]).toBe("types");
       expect(Object.keys(conditions.require)[0]).toBe("types");
     }
+  });
+});
+
+describe("the licence", () => {
+  it("is Apache-2.0, and the package carries LICENSE and NOTICE", () => {
+    expect(pkg.license).toBe("Apache-2.0");
+    expect(pkg.files).toEqual(expect.arrayContaining(["LICENSE", "NOTICE"]));
+    expect(readFileSync(new URL("../LICENSE", import.meta.url), "utf8")).toMatch(/Apache License\s+Version 2\.0/);
+    expect(readFileSync(new URL("../NOTICE", import.meta.url), "utf8")).toContain("MatterWave AI Contributors");
   });
 });

@@ -35,7 +35,7 @@ import type { RateLimit } from "./errors.js";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
-import { Accounts, Edge, Mfa, Passkeys } from "./native.js";
+import { Accounts, Mfa, Passkeys, Sync } from "./native.js";
 import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
 import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
 import { sseDataFrames } from "./sse.js";
@@ -782,7 +782,7 @@ export class MatterWave {
   /** Several accounts on one browser: the roster, the switch, the sign-outs. */
   readonly accounts: Accounts;
   /** Edge pairing and sync: an admin mints codes, a device key pushes. */
-  readonly edge: Edge;
+  readonly sync: Sync;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -867,7 +867,7 @@ export class MatterWave {
     this.passkeys = new Passkeys(this);
     this.mfa = new Mfa(this);
     this.accounts = new Accounts(this);
-    this.edge = new Edge(this);
+    this.sync = new Sync(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

@@ -49,7 +49,7 @@ function importRow(extra: Record<string, unknown> = {}) {
 describe("exports", () => {
   it("starts a job and reads the pending row", async () => {
     const { fetch, seen } = stubFetch([json(exportRow(), 202)]);
-    const started = await client(fetch).exports.start();
+    const started = await client(fetch).exports.create();
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/export`);
     expect(seen[0]!.body).toBeUndefined();
@@ -128,7 +128,7 @@ describe("exports", () => {
 describe("imports", () => {
   it("uploads the file as multipart and reads the pending row", async () => {
     const { fetch, seen } = stubFetch([json(importRow(), 202)]);
-    const started = await client(fetch).imports.start({
+    const started = await client(fetch).imports.create({
       file: new Blob(["{}"], { type: "application/json" }),
       filename: "conversations.json",
     });
@@ -145,7 +145,7 @@ describe("imports", () => {
   it("refuses an upload without a filename before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
     expect(() =>
-      client(fetch).imports.start({ file: new Blob(["{}"]), filename: "" }),
+      client(fetch).imports.create({ file: new Blob(["{}"]), filename: "" }),
     ).toThrow(MatterWaveConfigError);
     expect(calls()).toBe(0);
   });

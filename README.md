@@ -363,7 +363,12 @@ const status = await client.billing.status();         // the plan, its limits, a
 const catalog = await new MatterWave({ apiKey: null }).plans.list(); // public: the price list and model prices
 ```
 
-`account`: `update`, `acceptTerms`, `enforcement`. `preferences`: `get`,
+`account`: `update`, `acceptTerms`, `enforcement`, `completeOnboarding`,
+and the writes an API key may not make, which take a person's token or a
+session: `changePassword`, the email change (`emailChangeState`,
+`startEmailChange`, `verifyEmailChange`, `resendEmailChange`,
+`cancelEmailChange`) and `delete` (`confirm` is `"delete my account"`,
+checked here too). `preferences`: `get`,
 `update` (the route replaces the whole object, so `update` reads it first; a
 key not given keeps its value, `locale: null` clears the locale, and billing
 receipts cannot be turned off). `sessions`: `list` (a session's `id` is the
@@ -376,21 +381,17 @@ cookie's own value, a secret to keep out of logs), `revoke`, `revokeOthers`.
 credential). `wait` throws `MatterWaveError` when the job failed or expired
 and `APITimeoutError` when `timeoutMs` passes first.
 
-The same routes answer to a second spelling, one call per route:
-`account.rename` (as `update`, the body sent whole), `account.sessions` /
-`revokeSession` / `revokeOtherSessions`, `account.preferences` /
-`updatePreferences` (the whole shape, as `preferences()` returned it),
-`exports.start` (as `create`), `imports.start` (the file sent as given) and
-`billing.plans` (as `plans.list`). `account` also has
-`completeOnboarding`, and the routes a person's token takes and a key never
-does: `changePassword`, the email change (`emailChangeState`,
-`startEmailChange`, `verifyEmailChange`, `resendEmailChange`,
-`cancelEmailChange`) and `deleteAccount` (`confirm` is `"delete my
-account"`). `passkeys`, `mfa` and `accounts` are the web app's sign-in
-ceremonies (registering a passkey or a second factor is a signed-in
-person's; the sign-in steps and the account switcher are anonymous), and
-`edge` pairs an edge box (`mint`, `devices`, `unpair` for an owner or
-admin; `pair` with the code; `push` and `status` with the device key).
+Beside them: `passkeys` (`list`, `startRegistration`,
+`verifyRegistration`, `rename`, `remove` for a signed-in person, and the
+sign-in ceremony's two anonymous halves, `startLogin` and `finishLogin`),
+`mfa` (`state`, `startTotp`, `confirmTotp`, `removeTotp`,
+`reissueRecoveryCodes`, and the sign-in code step, anonymous:
+`verifyLogin`, `startLoginEnrolment`, `confirmLoginEnrolment`), `accounts`
+(the accounts signed in on one browser, by its cookies) and `sync` (edge
+pairing: an owner or admin mints a code with `mintPairingCode` and lists or
+unpairs boxes with `devices` / `unpair`; the box redeems the code for a
+device key with `pair` and pushes conversations with that key, `push`;
+`status` is what its sync job last did).
 
 ## Administering the organisation
 
@@ -425,18 +426,9 @@ org's name), `models` / `setModels`, `sharing` / `setSharing`, `shares` /
 `transferOwnership`, `remove`. `invites`: `list`, `create`, `resend`,
 `revoke`, `lookup`, `accept`. `inviteLinks`: `list`, `create`, `revoke`,
 `lookup`, `join`. `billing`: `checkout`, `portal`, `invoices`, `changePlan`,
-`planHistory` beside `status`. `auth.device`: `lookup`, `approve`, `deny`, the
-person's side of device login. `members` carries the invites and links as
-well (`listInvites`, `createInvite({ email, role })`, `resendInvite`,
-`revokeInvite`, `lookupInvite`, `acceptInvite`, `listInviteLinks`,
-`createInviteLink`, `revokeInviteLink`, `lookupJoinLink`, `join`), `org` the
-domains and providers flat (`claimDomain({ domain })`, `domainChallenge`,
-`verifyDomain`, `releaseDomain`, `attachIdp`, `detachIdp`), and `billing`
-`switchPlan({ plan, reason })` beside `changePlan`; `org.rename`,
-`setModels`, `setSharing`, `setSso`, `members.setRole` and
-`billing.checkout` take the object (`{ name }`, `{ allowed }`, ...) as well
-as the bare value. `invites.lookup` and `inviteLinks.lookup` are
-anonymous: the token is the credential. Reading the org, its members and its
+`planHistory` beside `status`; the public catalog is `plans.list`.
+`auth.device`: `lookup`, `approve`, `deny`, the person's side of device
+login. `invites.lookup` and `inviteLinks.lookup` are anonymous: the token is the credential. Reading the org, its members and its
 invites is any member's; the rest is an owner's or admin's, and closing the
 org, transferring ownership and requiring SSO or two-factor an owner's alone.
 `domains.verify` resolves the route's 202 (the record is not there yet) like
@@ -539,15 +531,15 @@ platform's route document (the drift test holds the two together):
 
 | `CREDENTIALS` | Accepts | Methods |
 | --- | --- | --- |
-| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view`, `plans.list`, `billing.plans`, `policy.stats`, `invites.lookup`, `inviteLinks.lookup`, `members.lookupInvite` / `lookupJoinLink`, `passkeys.startLogin` / `finishLogin`, `mfa.verify` / `enrolStart` / `enrolConfirm`, `accounts`, `edge.pair` |
-| `key` | any API key, or a person's token | `me`, `account` (but its password, email and deletion methods), `preferences`, `sessions`, `speech`, `billing.status`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get`, `edge.status` |
+| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view`, `plans.list`, `policy.stats`, `invites.lookup`, `inviteLinks.lookup`, `passkeys.startLogin` / `finishLogin`, `mfa.verifyLogin` / `startLoginEnrolment` / `confirmLoginEnrolment`, `accounts`, `sync.pair` |
+| `key` | any API key, or a person's token | `me`, `account` (but its password, email and deletion methods), `preferences`, `sessions`, `speech`, `billing.status`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get`, `sync.status` |
 | `key:chat:read` | a key with `chat:read`, or a person's token | `models`, `exports`, the conversation reads, `messages.listFeedback`, `shares.list` |
 | `key:chat:write` | a key with `chat:write`, or a person's token | `imports`, `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
 | `key:keys:manage` | a key with `keys:manage`, or a person's token | `keys.create` / `update` / `rotate` / `revoke` |
 | `key:usage:read` | a key with `usage:read`, or a person's token | `usage.org`, `usage.exportCsv` |
 | `key:webhooks:manage` | a key with `webhooks:manage`, or a person's token | `webhooks` |
-| `key:conversations:import` | a key with `conversations:import` (an edge box's device key), or a person's token | `edge.push` |
-| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `account.changePassword`, the email change and `deleteAccount`, `org`, `members`, `invites` and `inviteLinks` (but their `lookup`s), `billing` (but `status` and `plans`), `passkeys` and `mfa` (but the sign-in steps), `edge.mint` / `devices` / `unpair`, `auth.device.lookup` / `approve` / `deny`, `admin` |
+| `key:conversations:import` | a key with `conversations:import` (an edge box's device key), or a person's token | `sync.push` |
+| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `account.changePassword`, the email change and `account.delete`, `org`, `members`, `invites` and `inviteLinks` (but their `lookup`s), `billing` (but `status`), `passkeys` and `mfa` (but the sign-in steps), `sync.mintPairingCode` / `devices` / `unpair`, `auth.device.lookup` / `approve` / `deny`, `admin` |
 
 A scope never widens a role: the org routes still need the org role they ask of a
 person, whichever credential carries it.
@@ -795,3 +787,7 @@ served, every pinned route is still served, and every served route is pinned or
 internal. The `route-drift` workflow runs it daily against the repository
 variable `MATTERWAVE_LIVE_OPENAPI_URL` and opens an issue with the report on
 drift.
+
+## Licence
+
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

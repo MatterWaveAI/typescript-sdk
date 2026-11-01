@@ -173,36 +173,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs a person's token, and its docs quote the 403 a key gets ("Membership
   is managed by a person, not an API key."). They were documented as working
   with a key, which the platform never allowed.
-- The account, data, organisation and billing routes answer to both their
-  spellings, one class per namespace: `exports.start()` and
-  `create()`, `imports.start()` and `create()`, `account.sessions()` and
-  `sessions.list()`, `account.preferences()` / `updatePreferences()` (the
-  whole shape) and `preferences.get()` / `update()` (only the changes),
-  `account.rename()` and `update()`, `billing.plans()` and `plans.list()`,
-  `billing.switchPlan({ plan })` and `changePlan(plan)`,
-  `members.listInvites()` / `createInvite()` / `listInviteLinks()` / `join()`
-  and the rest beside `invites` and `inviteLinks`, and `org.claimDomain()`
-  / `attachIdp()` and the rest beside `org.domains` and `org.idps`.
-  `account.acceptTerms`, `org.rename`, `org.setModels`, `org.setSharing`,
-  `org.setSso`, `members.setRole` and `billing.checkout` take the bare value
-  or the object. `CREDENTIALS` names every one of them.
+- The licence is the Apache License 2.0, in place of MIT. `LICENSE` holds
+  its text, `NOTICE` names the copyright holder, `package.json` says
+  `Apache-2.0`, and the package carries both files.
+- Each operation has one name, the same in both SDKs (camelCase here,
+  snake_case in Python): the resource, then a verb, or a verb and its
+  object when the resource holds more than one kind of thing. Renamed:
+  `account.deleteAccount` is `account.delete`, `mfa.verify` is
+  `mfa.verifyLogin`, `mfa.enrolStart` is `mfa.startLoginEnrolment`,
+  `mfa.enrolConfirm` is `mfa.confirmLoginEnrolment`, `client.edge` is
+  `client.sync` (the class `Edge` is `Sync`), and `edge.mint` is
+  `sync.mintPairingCode`; `edge.devices`, `unpair`, `pair`, `status` and
+  `push` keep their names under `sync`. `APP_OPERATIONS` and `CREDENTIALS`
+  use the new names.
+- One form per method: `account.acceptTerms(version)`,
+  `org.rename(name)`, `org.setModels(allowed)`, `org.setSharing(enabled)`,
+  `org.setSso(required)`, `members.setRole(subject, role)` and
+  `billing.checkout(plan, { annual })` take the bare value, and
+  `preferences.update` takes the flat keys (`product_updates`,
+  `usage_alerts`, `budget_warn`, `locale`). `org.idps.attach` refuses a
+  blank `name` or `client_id` and an empty `client_secret` before sending.
 - `org.domains` and `org.idps` are namespaces, so the lists are
   `org.domains.list()` and `org.idps.list()` rather than `org.domains()`
   and `org.idps()`.
-- The org client's class is `OrgClient`; `Org` is the org's wire type,
-  the shape `OrgProfile` names too.
-- `speech.transcribe` sends the clip under `content_type` (or
-  `contentType`), else a `Blob`'s own type, else the type its file name's
-  extension names, and refuses before sending only a type that is not
-  audio; the route's 415 judges the audio types it does not take.
+- The org client's class is `OrgClient`; `Org` is the org's wire type.
+- `speech.transcribe` sends the clip under `content_type`, else a
+  `Blob`'s own type, else the type its file name's extension names, and
+  refuses before sending only a type that is not audio; the route's 415
+  judges the audio types it does not take. `contentType`, its second
+  spelling, is gone.
 - The same wire types are one type each: `Preferences`, `SessionList`,
   `ImportJob`, `MemberList`, `InviteList`, `DomainVerification`,
   `PlanCatalog` and the rest. `PlanCatalog.models` holds `ModelPrice` rows
-  keyed by `id`, as the route sends them (`PlanModelPrice` names the same
-  type), and `BillingStatus.dunning` is a `Dunning`, with `pay_url`
-  (`DunningState` names the same type).
+  keyed by `id`, as the route sends them, and `BillingStatus.dunning` is a
+  `Dunning`, with `pay_url`.
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
+
+### Removed
+
+- The second names for routes that already had one. Use the name beside
+  each: `account.rename` (`account.update`), `account.sessions`,
+  `account.revokeSession` and `account.revokeOtherSessions`
+  (`sessions.list`, `sessions.revoke`, `sessions.revokeOthers`),
+  `account.preferences` and `account.updatePreferences`
+  (`preferences.get`, `preferences.update`), `exports.start`
+  (`exports.create`), `imports.start` (`imports.create`), `billing.plans`
+  (`plans.list`), `billing.switchPlan` (`billing.changePlan`),
+  `members.listInvites`, `createInvite`, `resendInvite`, `revokeInvite`,
+  `lookupInvite` and `acceptInvite` (`invites.list`, `create`, `resend`,
+  `revoke`, `lookup`, `accept`), `members.listInviteLinks`,
+  `createInviteLink`, `revokeInviteLink`, `lookupJoinLink` and `join`
+  (`inviteLinks.list`, `create`, `revoke`, `lookup`, `join`), and
+  `org.claimDomain`, `domainChallenge`, `verifyDomain`, `releaseDomain`,
+  `attachIdp` and `detachIdp` (`org.domains.claim`, `challenge`, `verify`,
+  `release`, `org.idps.attach`, `detach`).
+- The second names for wire types, with the type to use: `Renamed`
+  (`UpdatedName`), `TermsAccepted` (`TermsAcceptance`), `SessionRow`
+  (`Session`), `SessionRevoked` (`RevokedSession`), `SessionsRevokedOthers`
+  (`RevokedSessions`), `ExportJob`, `ExportJobStatus` and
+  `ExportJobStatusKind` (`AccountExport`), `OrgMember` (`Member`),
+  `MemberSeats` (`Seats`), `OrgInvite` and `CreatedInvite` (`Invite`),
+  `InvitePreview` (`InviteLookup`), `JoinPreview` (`LinkLookup`),
+  `InviteLinkRow` and `CreatedInviteLink` (`InviteLink`), `InviteStatus`,
+  `OrgProfile` (`Org`), `OrgClosed` (`ClosedOrg`), `OrgShareRow`
+  (`OrgShare`), `OrgShareRevoked` (`RevokedOrgShare`), `SsoEnforced` and
+  `SsoRelaxed` (`SsoSettings`), `RecoveryCodeMinted`
+  (`MintedRecoveryCode`), `DnsChallenge` (`DnsRecord`),
+  `DomainChallengeAnswer` (`DomainChallenge`), `OrgDomainRow` (`Domain`),
+  `OrgIdpRow` (`IdentityProvider`), `PlanEvent` (`PlanChange`),
+  `BillingUrl` (`BillingLink`), `Collection` (`BillingStatus`),
+  `DunningState` (`Dunning`) and `PlanModelPrice` (`ModelPrice`), and the
+  parameter types of the removed methods (`RenameParams`,
+  `AcceptTermsParams`, `UploadImportParams`, `SetRoleParams`,
+  `RenameOrgParams`, `SetModelPolicyParams`, `SetSsoParams`,
+  `ClaimDomainParams`, `SwitchPlanParams`). `CreateInviteParams` no longer
+  has `email`: it is `invites.create`'s first argument.
 
 ### Fixed
 

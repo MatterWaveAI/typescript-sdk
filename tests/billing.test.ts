@@ -1,5 +1,5 @@
 /**
- * The billing resource: the public plan catalog, the move to Free, the
+ * The billing resources: the public plan catalog (`plans.list`), the move to Free, the
  * billing trail, and the Stripe checkout, portal, status and invoices.
  * Each test answers with the body the route in api/matterwave sends and
  * checks the request the client made.
@@ -64,7 +64,7 @@ describe("billing", () => {
         default_model: "grt-nano",
       }),
     ]);
-    const catalog = await client(fetch).billing.plans();
+    const catalog = await client(fetch).plans.list();
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/plans`);
     expect(seen[0]!.headers.Authorization).toBeUndefined();
@@ -74,11 +74,11 @@ describe("billing", () => {
     expect(catalog.requestId).toBe(REQUEST_ID);
   });
 
-  it("switches the plan to Free with the reason", async () => {
+  it("changes the plan to Free with the reason", async () => {
     const { fetch, seen } = stubFetch([
       json(entitlementRow({ plan: "free", plan_name: "Free", status: "active" })),
     ]);
-    const moved = await client(fetch).billing.switchPlan({ plan: "free", reason: "offboarding" });
+    const moved = await client(fetch).billing.changePlan("free", { reason: "offboarding" });
     expect(seen[0]!.method).toBe("PUT");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/plan`);
     expect(seen[0]!.body).toEqual({ plan: "free", reason: "offboarding" });
@@ -87,13 +87,13 @@ describe("billing", () => {
 
   it("omits the reason when there is none", async () => {
     const { fetch, seen } = stubFetch([json(entitlementRow())]);
-    await client(fetch).billing.switchPlan({ plan: "free" });
+    await client(fetch).billing.changePlan("free");
     expect(seen[0]!.body).toEqual({ plan: "free" });
   });
 
-  it("refuses a switch without a plan code before sending", () => {
+  it("refuses a change without a plan code before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).billing.switchPlan({ plan: "" })).toThrow(MatterWaveConfigError);
+    expect(() => client(fetch).billing.changePlan("")).toThrow(MatterWaveConfigError);
     expect(calls()).toBe(0);
   });
 
@@ -124,7 +124,7 @@ describe("billing", () => {
 
   it("starts a checkout, monthly by default", async () => {
     const { fetch, seen } = stubFetch([json({ url: "https://checkout.stripe.com/c/pay/cs_01" })]);
-    const started = await client(fetch).billing.checkout({ plan: "scale" });
+    const started = await client(fetch).billing.checkout("scale");
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/billing/checkout`);
     expect(seen[0]!.body).toEqual({ plan: "scale", annual: false });
@@ -133,7 +133,7 @@ describe("billing", () => {
 
   it("starts an annual checkout when asked", async () => {
     const { fetch, seen } = stubFetch([json({ url: "https://checkout.stripe.com/c/pay/cs_02" })]);
-    await client(fetch).billing.checkout({ plan: "scale", annual: true });
+    await client(fetch).billing.checkout("scale", { annual: true });
     expect(seen[0]!.body).toEqual({ plan: "scale", annual: true });
   });
 

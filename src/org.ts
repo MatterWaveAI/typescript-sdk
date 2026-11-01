@@ -1,9 +1,8 @@
 /**
  * The organisation clients: `org` (the org, its model allow-list, sharing,
  * SSO and two-factor settings, and `org.domains` and `org.idps`),
- * `members` (with the invites and links beside the members), `invites` and
- * `inviteLinks`, one method per route on top of the client's request and
- * retry loop.
+ * `members`, `invites` and `inviteLinks`, one method per route on top of
+ * the client's request and retry loop.
  *
  *     const admin = new MatterWave({ accessToken: session.accessToken });
  *     await admin.members.setRole(subject, "admin");
@@ -14,32 +13,14 @@
  * Reading is open to any member where the web app shows it to any member
  * (the org, its members and invites); the rest is an owner's or admin's,
  * and some (closing the org, transferring ownership, requiring SSO or
- * two-factor) an owner's alone. The lookups (`invites.lookup`,
- * `inviteLinks.lookup`, `members.lookupInvite`, `members.lookupJoinLink`)
+ * two-factor) an owner's alone. `invites.lookup` and `inviteLinks.lookup`
  * are the exceptions: anonymous, the token being the credential.
  */
 
 import { MatterWaveConfigError } from "./client.js";
 import type { MatterWave, RequestOptions } from "./client.js";
 import { segment } from "./conversations.js";
-import { Resource, present } from "./native.js";
-import type {
-  ClaimDomainParams,
-  CreatedInvite,
-  CreatedInviteLink,
-  DomainChallengeAnswer,
-  InvitePreview,
-  JoinPreview,
-  OrgDomainRow,
-  OrgIdpRow,
-  OrgMember,
-  RenameOrgParams,
-  SetModelPolicyParams,
-  SetRoleParams,
-  SetSsoParams,
-  SsoEnforced,
-  SsoRelaxed,
-} from "./native-types.js";
+import { Resource } from "./native.js";
 import type {
   AttachIdpParams,
   CloseOrgParams,
@@ -99,7 +80,10 @@ function tokenBody(token: string): { token: string } {
 function idpBody(params: AttachIdpParams): Record<string, unknown> {
   const kind = params.kind ?? "oidc";
   if (kind !== "oidc") throw new MatterWaveConfigError(`kind must be "oidc", got ${kind}`);
+  if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
   if (!params.issuer?.startsWith("https://")) throw new MatterWaveConfigError("issuer must be an https:// URL");
+  if (!params.client_id?.trim()) throw new MatterWaveConfigError("client_id must not be blank");
+  if (!params.client_secret) throw new MatterWaveConfigError("client_secret must be non-empty");
   const body: Record<string, unknown> = {
     kind,
     name: params.name,
@@ -203,11 +187,10 @@ export class OrgClient extends Resource {
     return this.call("GET", "/api/org", undefined, options);
   }
 
-  /** Rename the org (1 to 120 characters), given as the name or as `{ name }`. Owner or admin; audited. */
-  rename(name: string | RenameOrgParams, options: RequestOptions = {}): Promise<WithRequestId<Org>> {
-    const named = typeof name === "string" ? name : name?.name;
-    if (!named?.trim() || named.length > 120) throw new MatterWaveConfigError("an org name is 1 to 120 characters");
-    return this.call("PATCH", "/api/org", { name: named }, options);
+  /** Rename the org (1 to 120 characters). Owner or admin; audited. */
+  rename(name: string, options: RequestOptions = {}): Promise<WithRequestId<Org>> {
+    if (!name?.trim() || name.length > 120) throw new MatterWaveConfigError("an org name is 1 to 120 characters");
+    return this.call("PATCH", "/api/org", { name }, options);
   }
 
   /**
@@ -232,16 +215,15 @@ export class OrgClient extends Resource {
 
   /**
    * Allow exactly these model ids (the house model always stays), or with
-   * `null` every model the plan offers; given as the list or as
-   * `{ allowed }`. A model the plan does not offer is the server's 422.
+   * `null` every model the plan offers. A model the plan does not offer is
+   * the server's 422.
    */
-  setModels(allowed: string[] | null | SetModelPolicyParams, options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
-    const list = allowed === null || Array.isArray(allowed) ? allowed : allowed?.allowed;
-    if (list !== null && !Array.isArray(list)) {
+  setModels(allowed: string[] | null, options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
+    if (allowed !== null && !Array.isArray(allowed)) {
       throw new MatterWaveConfigError("allowed must be a list of model ids or null");
     }
-    if (list !== null && list.length > MODELS_MAX) throw new MatterWaveConfigError(`allow at most ${MODELS_MAX} models`);
-    return this.call("PUT", "/api/org/models", { allowed: list }, options);
+    if (allowed !== null && allowed.length > MODELS_MAX) throw new MatterWaveConfigError(`allow at most ${MODELS_MAX} models`);
+    return this.call("PUT", "/api/org/models", { allowed }, options);
   }
 
   /** Whether members may share conversations by link. Owner or admin. */
@@ -250,14 +232,13 @@ export class OrgClient extends Resource {
   }
 
   /**
-   * Allow or stop share links, given as the switch or as `{ enabled }`.
-   * Stopping silences every link at once without revoking it, so turning it
-   * back on restores them. Owner or admin, and audited.
+   * Allow or stop share links. Stopping silences every link at once without
+   * revoking it, so turning it back on restores them. Owner or admin, and
+   * audited.
    */
-  setSharing(enabled: boolean | SharingPolicy, options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
-    const on = typeof enabled === "boolean" ? enabled : enabled?.enabled;
-    if (typeof on !== "boolean") throw new MatterWaveConfigError("enabled must be a boolean");
-    return this.call("PUT", "/api/org/sharing", { enabled: on }, options);
+  setSharing(enabled: boolean, options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
+    if (typeof enabled !== "boolean") throw new MatterWaveConfigError("enabled must be a boolean");
+    return this.call("PUT", "/api/org/sharing", { enabled }, options);
   }
 
   /** Every share link the org's members made, newest first, with who made each; never a token. */
@@ -276,18 +257,15 @@ export class OrgClient extends Resource {
   }
 
   /**
-   * Require SSO (owner only) or stop requiring it (owner or admin), given
-   * as the switch or as `{ sso_required }`. Requiring it answers with a
-   * break-glass `recovery` code, shown this once -- there is no way to reach
-   * the enforced state without being handed the way back out of it;
-   * `ConflictError` while a blocker would lock the org out.
+   * Require SSO (owner only) or stop requiring it (owner or admin).
+   * Requiring it answers with a break-glass `recovery` code, shown this
+   * once -- there is no way to reach the enforced state without being
+   * handed the way back out of it; `ConflictError` while a blocker would
+   * lock the org out.
    */
-  setSso(required: boolean, options?: RequestOptions): Promise<WithRequestId<SsoSettings>>;
-  setSso(params: SetSsoParams, options?: RequestOptions): Promise<WithRequestId<SsoEnforced | SsoRelaxed>>;
-  setSso(required: boolean | SetSsoParams, options: RequestOptions = {}): Promise<WithRequestId<SsoSettings | SsoEnforced | SsoRelaxed>> {
-    const on = typeof required === "boolean" ? required : required?.sso_required;
-    if (typeof on !== "boolean") throw new MatterWaveConfigError("sso_required must be a boolean");
-    return this.call("PUT", "/api/org/sso", { sso_required: on }, options);
+  setSso(required: boolean, options: RequestOptions = {}): Promise<WithRequestId<SsoSettings>> {
+    if (typeof required !== "boolean") throw new MatterWaveConfigError("required must be a boolean");
+    return this.call("PUT", "/api/org/sso", { sso_required: required }, options);
   }
 
   /** A new break-glass code, superseding any unused one. Owner only, and audited. */
@@ -302,46 +280,6 @@ export class OrgClient extends Resource {
   /** Require a second factor of every member, or stop. Owner only. */
   setMfa(required: boolean, options: RequestOptions = {}): Promise<WithRequestId<MfaSettings>> {
     return this.call("PUT", "/api/org/mfa", { mfa_required: required }, options);
-  }
-
-  /** `POST /api/org/domains` (201): claim a domain, unverified, as `domains.claim` does. Owner or admin. */
-  claimDomain(params: ClaimDomainParams, options: RequestOptions = {}): Promise<WithRequestId<OrgDomainRow>> {
-    if (!params.domain?.trim()) throw new MatterWaveConfigError("domain must be a domain like example.com");
-    return this.call("POST", "/api/org/domains", params, options);
-  }
-
-  /** `GET /api/org/domains/{domain}/challenge`: the DNS TXT record to publish, as `domains.challenge` reads it. */
-  domainChallenge(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainChallengeAnswer>> {
-    return this.call("GET", domainPath(domain, "/challenge"), undefined, options);
-  }
-
-  /**
-   * `POST /api/org/domains/{domain}/verify`: prove the claim, as
-   * `domains.verify` does. 200 proven; 202 the record is not there yet (the
-   * claim stands, `detail` says what was wrong); 503 the check could not be
-   * run at all.
-   */
-  verifyDomain(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainVerification>> {
-    return this.call("POST", domainPath(domain, "/verify"), undefined, options);
-  }
-
-  /** `DELETE /api/org/domains/{domain}`: release the claim, as `domains.release` does. Owner or admin. */
-  releaseDomain(domain: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", domainPath(domain), options);
-  }
-
-  /** `POST /api/org/idp` (201): attach an OIDC provider, as `idps.attach` does; `client_secret` must be given. Owner or admin. */
-  attachIdp(params: AttachIdpParams, options: RequestOptions = {}): Promise<WithRequestId<OrgIdpRow>> {
-    const body = idpBody(params);
-    if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
-    if (!params.client_id?.trim()) throw new MatterWaveConfigError("client_id must not be blank");
-    if (!params.client_secret) throw new MatterWaveConfigError("client_secret must be non-empty");
-    return this.call("POST", "/api/org/idp", body, options);
-  }
-
-  /** `DELETE /api/org/idp/{provider}`: detach a provider, as `idps.detach` does. Owner or admin. */
-  detachIdp(provider: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", `/api/org/idp/${segment("provider", provider)}`, options);
   }
 }
 
@@ -369,12 +307,9 @@ function linkBody(params: CreateInviteLinkParams, ownerRefusal: string): Record<
 
 /**
  * `/api/org/members`: who is in the org and in what role. Any member lists
- * members and invites and may leave (remove themselves); owner and admin
- * change roles, remove others, invite, resend, revoke and manage links; only
- * an owner touches an owner or grants ownership. An invite that would pass
- * the plan's seat cap is refused with the 402 every entitlement gate
- * answers. The invites and links are here too (`listInvites`,
- * `createInviteLink`, `join`, ...), as `invites` and `inviteLinks` have them.
+ * members and may leave (remove themselves); owner and admin change roles
+ * and remove others; only an owner touches an owner or grants ownership.
+ * Invitations are `client.invites`, join links `client.inviteLinks`.
  */
 export class Members extends Resource {
   /** Every member, the caller's own role, and the seats. Any member. */
@@ -383,14 +318,13 @@ export class Members extends Resource {
   }
 
   /**
-   * `owner`, `admin`, `member` or `viewer`, given as the role or as
-   * `{ role }`. Owner or admin, and only an owner grants or takes
-   * ownership; `ConflictError` when it would leave the org without an owner.
+   * `owner`, `admin`, `member` or `viewer`. Owner or admin, and only an
+   * owner grants or takes ownership; `ConflictError` when it would leave
+   * the org without an owner.
    */
-  setRole(subject: string, role: OrgRole | SetRoleParams, options: RequestOptions = {}): Promise<WithRequestId<Member>> {
-    const named = typeof role === "string" ? role : role?.role;
-    checkRole(named);
-    return this.call("PUT", memberPath(subject, "/role"), { role: named }, options);
+  setRole(subject: string, role: OrgRole, options: RequestOptions = {}): Promise<WithRequestId<Member>> {
+    checkRole(role);
+    return this.call("PUT", memberPath(subject, "/role"), { role }, options);
   }
 
   /** Make an active member the owner; the caller becomes an admin, together or not at all. Owner only. */
@@ -401,71 +335,6 @@ export class Members extends Resource {
   /** Remove a member (owner or admin), or leave (anyone, as themselves, unless the last owner). The seats are billed again. */
   remove(subject: string, options: RequestOptions = {}): Promise<void> {
     return this.none("DELETE", memberPath(subject), options);
-  }
-
-  /** `GET /api/org/invites`: the mailed invites and where each stands, as `invites.list` reads them. Any member. */
-  listInvites(options: RequestOptions = {}): Promise<WithRequestId<InviteList>> {
-    return this.call("GET", "/api/org/invites", undefined, options);
-  }
-
-  /** `POST /api/org/invites` (201): invite `email` at a role and mail it, as `invites.create` does. A relay failure does not undo the row -- `mail: "failed"` says so, and a resend is the recovery. Owner or admin. */
-  createInvite(params: CreateInviteParams & { email: string }, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
-    if (!params.email?.includes("@")) throw new MatterWaveConfigError("email must be an email address");
-    if (params.role !== undefined) checkRole(params.role);
-    return this.call("POST", "/api/org/invites", { role: "member", ...present(params) }, options);
-  }
-
-  /** `POST /api/org/invites/{id}/resend`: a new token, a new expiry and the mail again. Three an hour per invite, so a refused resend leaves the last link working. Owner or admin. */
-  resendInvite(inviteId: string, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
-    return this.call("POST", invitePath(inviteId, "/resend"), undefined, options);
-  }
-
-  /** `DELETE /api/org/invites/{id}`: revoke an invite for good. Owner or admin. */
-  revokeInvite(inviteId: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", invitePath(inviteId), options);
-  }
-
-  /** `POST /api/org/invites/lookup`: what a /join page asks before it renders, as `invites.lookup` does. Anonymous: the token is the credential, sent in the body so it stays out of access logs. */
-  lookupInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<InvitePreview>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.callAnon("POST", "/api/org/invites/lookup", { token }, options);
-  }
-
-  /** `POST /api/org/invites/accept`: redeem a mailed invite as the account whose address was invited. An account in another org cannot be moved (409 says so). */
-  acceptInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.call("POST", "/api/org/invites/accept", { token }, options);
-  }
-
-  /** `GET /api/org/invite-links`: the links not revoked, with their uses. Owner or admin -- a link admits whoever holds it. */
-  listInviteLinks(options: RequestOptions = {}): Promise<WithRequestId<InviteLinkList>> {
-    return this.call("GET", "/api/org/invite-links", undefined, options);
-  }
-
-  /**
-   * `POST /api/org/invite-links` (201): make a link and get its `token`
-   * and `url` -- once; only the hash is kept, so a lost link is revoked and
-   * replaced, never shown again. Never an owner link. Owner or admin.
-   */
-  createInviteLink(params: CreateInviteLinkParams = {}, options: RequestOptions = {}): Promise<WithRequestId<CreatedInviteLink>> {
-    return this.call("POST", "/api/org/invite-links", linkBody(params, "An invite link is never an owner link."), options);
-  }
-
-  /** `DELETE /api/org/invite-links/{id}`: revoke a link; the joins it already made stand. Owner or admin. */
-  revokeInviteLink(linkId: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", `/api/org/invite-links/${segment("linkId", linkId)}`, options);
-  }
-
-  /** `POST /api/join/lookup`: whose org a link leads to, which role, whether it still works. Anonymous -- the token is the credential. */
-  lookupJoinLink(token: string, options: RequestOptions = {}): Promise<WithRequestId<JoinPreview>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.callAnon("POST", "/api/join/lookup", { token }, options);
-  }
-
-  /** `POST /api/join`: join through a link. A revoked link is the same 404 as none; an expired or used-up one is a 410. */
-  join(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.call("POST", "/api/join", { token }, options);
   }
 }
 

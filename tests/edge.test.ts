@@ -63,7 +63,7 @@ describe("edge", () => {
         201,
       ),
     ]);
-    const minted = await client(fetch).edge.mint({ name: "shelf-box" });
+    const minted = await client(fetch).sync.mintPairingCode({ name: "shelf-box" });
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/pairings`);
     expect(seen[0]!.body).toEqual({ name: "shelf-box" });
@@ -73,13 +73,13 @@ describe("edge", () => {
 
   it("refuses an unnamed box before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).edge.mint({ name: "  " })).toThrow(/Name the box/);
+    expect(() => client(fetch).sync.mintPairingCode({ name: "  " })).toThrow(/Name the box/);
     expect(calls()).toBe(0);
   });
 
   it("lists the paired boxes with their names", async () => {
     const { fetch, seen } = stubFetch([json({ data: [deviceRow()] })]);
-    const listed = await client(fetch).edge.devices();
+    const listed = await client(fetch).sync.devices();
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/devices`);
     expect(listed.data[0]!.box_name).toBe("shelf-box");
@@ -88,7 +88,7 @@ describe("edge", () => {
 
   it("unpairs a box with a 204", async () => {
     const { fetch, seen } = stubFetch([new Response(null, { status: 204 })]);
-    await client(fetch).edge.unpair(DEVICE_KEY_ID);
+    await client(fetch).sync.unpair(DEVICE_KEY_ID);
     expect(seen[0]!.method).toBe("DELETE");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/devices/${DEVICE_KEY_ID}`);
   });
@@ -97,7 +97,7 @@ describe("edge", () => {
     const { fetch, seen } = stubFetch([
       json({ key: "mw_edge_secret", key_id: DEVICE_KEY_ID, name: "shelf-box", scopes: ["conversations:import"] }),
     ]);
-    const granted = await client(fetch).edge.pair({ code: "ABCD-EFGH-JKLM", device_id: "dev-01" });
+    const granted = await client(fetch).sync.pair({ code: "ABCD-EFGH-JKLM", device_id: "dev-01" });
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/pair`);
     expect(seen[0]!.body).toEqual({ code: "ABCD-EFGH-JKLM", device_id: "dev-01" });
@@ -108,7 +108,7 @@ describe("edge", () => {
 
   it("refuses an empty code before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).edge.pair({ code: "" })).toThrow(MatterWaveConfigError);
+    expect(() => client(fetch).sync.pair({ code: "" })).toThrow(MatterWaveConfigError);
     expect(calls()).toBe(0);
   });
 
@@ -134,7 +134,7 @@ describe("edge", () => {
         next_attempt_at: null,
       }),
     ]);
-    const status = await client(fetch).edge.status();
+    const status = await client(fetch).sync.status();
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/status`);
     expect(status.paired).toBe(true);
@@ -144,7 +144,7 @@ describe("edge", () => {
 
   it("reads an unpaired platform answer", async () => {
     const { fetch } = stubFetch([json({ box: false, paired: false })]);
-    const status = await client(fetch).edge.status();
+    const status = await client(fetch).sync.status();
     expect(status.box).toBe(false);
     expect(status.paired).toBe(false);
   });
@@ -153,7 +153,7 @@ describe("edge", () => {
     const { fetch, seen } = stubFetch([
       json({ conversation_id: "c0ffee00-0000-4000-8000-000000000042", accepted: 1, updated: 0, already_present: 0, rejected: [] }),
     ]);
-    const outcome = await client(fetch).edge.push(pushBody());
+    const outcome = await client(fetch).sync.push(pushBody());
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/sync/conversations`);
     expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
@@ -172,9 +172,9 @@ describe("edge", () => {
     const c = client(fetch);
     const body = pushBody();
     body.conversation.messages![0]!.conversation_id = "another-conversation";
-    expect(() => c.edge.push(body)).toThrow(/conversation_id must be the conversation's id/);
-    expect(() => c.edge.push({ ...pushBody(), format_version: 2 })).toThrow(/format_version must be 1/);
-    expect(() => c.edge.push({ conversation: { id: "", created_at: "x", updated_at: "y" } })).toThrow(
+    expect(() => c.sync.push(body)).toThrow(/conversation_id must be the conversation's id/);
+    expect(() => c.sync.push({ ...pushBody(), format_version: 2 })).toThrow(/format_version must be 1/);
+    expect(() => c.sync.push({ conversation: { id: "", created_at: "x", updated_at: "y" } })).toThrow(
       /conversation must have an id/,
     );
     expect(calls()).toBe(0);
