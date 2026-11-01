@@ -7,8 +7,10 @@
  * its links (symbolic links, and junctions on Windows) and returns where it
  * really leads, or throws `PathRefusedError` before anything is read or
  * written: for a `..` segment, an absolute path outside the root, a link
- * that leads out of it, a path on the deny list (by its own name or its
- * target's), or, for a write, a protected path the user has not approved.
+ * that leads out of it, a name Windows would read as another file or a
+ * device (a `:` stream, a trailing dot or space, `NUL` and the other reserved
+ * names, a verbatim or UNC path), a path on the deny list (by its own name or
+ * its target's), or, for a write, a protected path the user has not approved.
  *
  * Confinement is not a sandbox. It keeps the file tools inside the root;
  * `run_shell` can reach anything the user can, which is why commands ask.
@@ -16,7 +18,7 @@
 
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import * as nodePath from "node:path";
-import { DenyList, PROTECTED_LIST, PathRefusedError, isAbsolute } from "./deny.js";
+import { DenyList, PROTECTED_LIST, PathRefusedError, isAbsolute, windowsAlias } from "./deny.js";
 import { DENY_FILE } from "./types.js";
 
 const MAX_LINK_HOPS = 40;
@@ -141,6 +143,8 @@ export function confine(
   if (!path || path.trim() === "") throw new PathRefusedError("empty", path ?? "");
   if (path.includes("\0")) throw new PathRefusedError("outside", path.split("\0").join(""));
   if (path.split(/[\\/]/).includes("..")) throw new PathRefusedError("parent", path);
+  const alias = windowsAlias(path);
+  if (alias !== null) throw new PathRefusedError(alias, path);
 
   const givenRoot = nodePath.resolve(root);
   const realRoot = resolveLinks(givenRoot);

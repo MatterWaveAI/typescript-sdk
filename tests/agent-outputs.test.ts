@@ -54,6 +54,7 @@ import {
   utf8Head,
   utf8Tail,
   walk,
+  windowsAlias,
   type AnyToolKind,
   type ExtraTool,
   type Limits,
@@ -76,6 +77,7 @@ interface ToolCase {
 
 interface Conformance {
   tree: Record<string, string>;
+  paths: { path: string; write?: boolean; relative?: string; refused?: string; message?: string }[];
   tools: ToolCase[];
   ignore: { path: string; is_dir?: boolean; ancestors?: boolean; ignored: boolean }[];
   shell: {
@@ -218,6 +220,45 @@ describe("tool output", () => {
   });
 });
 
+// --- what confine makes of a path ---------------------------------------------
+
+describe("confine paths", () => {
+  it.each(CONFORMANCE.paths.map((c) => [`${JSON.stringify(c.path)}${c.write ? " (write)" : ""}`, c] as const))(
+    "%s",
+    (_, c) => {
+      if (c.relative !== undefined) {
+        expect(confine(tree, c.path, { write: c.write ?? false }).relative).toBe(c.relative);
+        return;
+      }
+      let thrown: unknown;
+      try {
+        confine(tree, c.path, { write: c.write ?? false });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(PathRefusedError);
+      expect((thrown as PathRefusedError).reason).toBe(c.refused);
+      expect((thrown as PathRefusedError).message).toBe(c.message);
+    },
+  );
+
+  it("names the Windows aliases without the filesystem", () => {
+    const aliases = new Set(["stream", "trailing", "device", "unc"]);
+    for (const c of CONFORMANCE.paths) {
+      if (c.refused !== undefined && aliases.has(c.refused)) expect([c.path, windowsAlias(c.path)]).toEqual([c.path, c.refused]);
+      else if (c.relative !== undefined) expect([c.path, windowsAlias(c.path)]).toEqual([c.path, null]);
+    }
+  });
+
+  it("refuses a path the OS cannot follow with its own error", () => {
+    const dir = tempDir();
+    for (const path of ["nul", "NUL.txt", "con", "COM1", "x:y", "\\\\.\\nul", "src\\aux.txt"]) {
+      expect(() => confine(dir, path)).toThrow(PathRefusedError);
+    }
+    expect(() => confine(dir, "Z:\\elsewhere\\file.txt")).toThrow(PathRefusedError);
+  });
+});
+
 // --- the search rules ----------------------------------------------------------
 
 function ignoreRules(): SearchIgnore {
@@ -345,7 +386,7 @@ describe("protected files", () => {
   });
 
   it("lists them, and the agent index exports the matcher and the CRLF flag", () => {
-    expect(PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md"]);
+    expect(PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".ssh/", ".aws/", "**/.config/matterwave"]);
     expect(CONTEXT_FILES).toEqual(["MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md"]);
     expect(SETTINGS_DIR).toBe(".matterwave/");
     expect(PROTECTED_LIST.patterns).toEqual(PROTECTED);
@@ -376,7 +417,12 @@ describe("refusals", () => {
     expect(new Set(CASES.refusals.map((c) => c.code))).toEqual(
       new Set([...Object.keys(APPROVAL_REFUSALS), "outside", "denied"]),
     );
-    expect(Object.keys(REFUSALS).length + Object.keys(APPROVAL_REFUSALS).length).toBe(11);
+    expect([...Object.keys(REFUSALS), ...Object.keys(APPROVAL_REFUSALS)].sort()).toEqual(
+      [
+        ...["empty", "parent", "outside", "symlink", "denied", "protected", "stream", "trailing", "device", "unc"],
+        ...["mode", "unknown_tool", "rejected", "headless", "needs_approval"],
+      ].sort(),
+    );
     expect(() => refusal("nope" as RefusalCode)).toThrow(RangeError);
   });
 });

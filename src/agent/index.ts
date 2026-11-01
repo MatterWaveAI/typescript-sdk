@@ -76,7 +76,7 @@ export { allowed, mode, platformName, refusal, shellFor, systemPrompt, toolsForM
 export type { PromptTool } from "./modes.js";
 export { EditError, applyEdit, occurrences } from "./edit.js";
 export { NO_NEWLINE, splitLines, unifiedDiff } from "./diff.js";
-export { DenyList, PROTECTED_LIST, PathRefusedError, globToRegex, isAbsolute, isProtected } from "./deny.js";
+export { DenyList, PROTECTED_LIST, PathRefusedError, globToRegex, isAbsolute, isProtected, windowsAlias } from "./deny.js";
 export { IgnoreFile, SearchIgnore } from "./ignore.js";
 export {
   ToolError,

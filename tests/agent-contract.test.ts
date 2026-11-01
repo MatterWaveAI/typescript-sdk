@@ -93,7 +93,7 @@ describe("the agent contract", () => {
     expect(agent.DEFAULT_DENY).toEqual([".env*", "*.pem", "id_*", ".git/"]);
     expect(agent.DENY_FILE).toBe(".matterwaveignore");
     expect(agent.SEARCH_IGNORE_FILES).toEqual([".gitignore", ".matterwaveignore"]);
-    expect(agent.PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md"]);
+    expect(agent.PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".ssh/", ".aws/", "**/.config/matterwave"]);
   });
 
   it("has a prompt that says tool output is data and uses only its placeholders", () => {
