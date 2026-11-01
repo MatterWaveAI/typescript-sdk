@@ -11,11 +11,14 @@
  *     const stream = await client.chat.completions.create({ messages, stream: true });
  *     for await (const text of stream.text()) process.stdout.write(text);
  *
- * A 429 (the per-key window) and any 5xx are retried `maxRetries` times
- * with backoff, honouring `Retry-After` when the server sends it; a 429
- * whose code is `insufficient_quota` is not, because waiting does not
- * refill a budget. Every error carries the `X-Request-Id` the server
- * stamped on the refusal.
+ * A 429 (the per-key window) is retried `maxRetries` times with backoff,
+ * honouring `Retry-After` when the server sends it; a 429 whose code is
+ * `insufficient_quota` is not, because waiting does not refill a budget. A
+ * 5xx or a dropped connection is retried the same way for a request that is
+ * safe to send twice (GET, PUT, DELETE); a POST or PATCH is sent again only
+ * when the connection was never made, since the first copy may already have
+ * taken effect. Every error carries the `X-Request-Id` the server stamped on
+ * the refusal.
  */
 
 import {
@@ -67,6 +70,25 @@ export const BACKOFF_BASE_MS = 500;
 export const BACKOFF_CAP_MS = 8_000;
 // A 429 the server says is the organisation's budget, not the window.
 const NON_RETRYABLE_429_CODES = new Set(["insufficient_quota"]);
+// Methods a second copy of cannot add anything the first did not: reads, and
+// the PUT and DELETE routes, which set a state rather than append one. A POST
+// or a PATCH that failed after reaching the server may have taken effect -- a
+// message stored and billed, a key minted -- so it is only sent again when the
+// failure proves the server never acted on it.
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]);
+// Error codes for a connection that was never made, so no byte of the request
+// was written: Node's (libuv and undici) and Bun's names for them. A reset or
+// a timeout after connecting leaves open whether the server acted.
+const UNSENT_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ConnectionRefused",
+  "FailedToOpenSocket",
+]);
 
 /**
  * The last HTTP response the client received, whatever became of it:
@@ -144,6 +166,30 @@ export interface Prepared {
   headers?: Record<string, string>;
   /** This request's timeout, where the client's default is wrong for it: an MCP tool that runs a whole model turn takes minutes, not seconds. */
   timeoutMs?: number;
+  /** Whether sending it twice is harmless. Left out, the method decides; a POST that only reads (an MCP `tools/list`) says true. */
+  idempotent?: boolean;
+}
+
+/** @internal Whether a failed attempt at `prepared` may be sent again whatever became of it. */
+export function safeToRepeat(prepared: Pick<Prepared, "method" | "idempotent">): boolean {
+  return prepared.idempotent ?? IDEMPOTENT_METHODS.has(prepared.method);
+}
+
+/**
+ * Whether a fetch that threw failed before the request left: the connection
+ * was refused or the name did not resolve. Runtimes nest the reason (undici's
+ * `fetch failed` carries it as `cause`, sometimes an `AggregateError` of one
+ * per address), so the chain is walked.
+ */
+export function neverSent(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth += 1) {
+    const { code, errors, cause } = current as { code?: unknown; errors?: unknown; cause?: unknown };
+    if (typeof code === "string" && UNSENT_CODES.has(code)) return true;
+    if (Array.isArray(errors) && errors.length > 0 && errors.every((e) => neverSent(e))) return true;
+    current = cause;
+  }
+  return false;
 }
 
 function envValue(name: string): string | null {
@@ -288,9 +334,15 @@ function errorFromEnvelope(payload: Record<string, unknown>, requestId: string |
   });
 }
 
-/** 429 and 5xx, except the 429 that means the budget is spent. */
-export function shouldRetry(response: Response, raw: string): boolean {
-  if (response.status >= 500) return true;
+/**
+ * 429, except the one that means the budget is spent, and 5xx for a request
+ * that is safe to repeat. A 429 is the server declining before the route
+ * runs, so it is retried whatever the method; a 5xx may come after a write
+ * took effect (a gateway timing out on a reply the app was still sending),
+ * so a POST is not sent again on one.
+ */
+export function shouldRetry(response: Response, raw: string, repeatable = true): boolean {
+  if (response.status >= 500) return repeatable;
   if (response.status !== 429) return false;
   const { envelope, payload } = parseErrorBody(raw);
   if (!envelope) return true;
@@ -710,6 +762,7 @@ export class MatterWave {
     // runs a whole model turn), then the client's defaults.
     const maxRetries = options.maxRetries ?? this.maxRetries;
     const timeoutMs = options.timeoutMs ?? prepared.timeoutMs ?? this.timeoutMs;
+    const repeatable = safeToRepeat(prepared);
     // A FormData goes as it is, so fetch writes the multipart boundary; it
     // can be sent again on a retry, unlike a stream.
     const body =
@@ -733,7 +786,10 @@ export class MatterWave {
       } catch (cause) {
         stop.clear();
         if (options.signal?.aborted) throw cause;
-        if (attempt >= maxRetries) {
+        // Our own timeout fired after the request may have gone out, so only
+        // a refused connection proves a write never arrived.
+        const again = repeatable || (!stop.timedOut && neverSent(cause));
+        if (attempt >= maxRetries || !again) {
           throw stop.timedOut
             ? new APITimeoutError(`${prepared.method} ${prepared.path} timed out.`, { cause })
             : new APIConnectionError(
@@ -756,7 +812,7 @@ export class MatterWave {
       stop.clear();
       this._lastResponse = new RawResponse(response);
       if (this.onResponse) this.onResponse(this._lastResponse);
-      if (attempt < maxRetries && shouldRetry(response, raw)) {
+      if (attempt < maxRetries && shouldRetry(response, raw, repeatable)) {
         await sleeper(backoffMs(attempt, retryAfterSeconds(response)));
         continue;
       }

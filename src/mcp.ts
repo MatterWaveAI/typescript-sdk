@@ -282,6 +282,9 @@ export class Mcp {
       stream: false,
       headers: this.headers(method, opts.named, protocolVersion),
       timeoutMs: opts.timeoutMs,
+      // Every JSON-RPC call is a POST; only `tools/call` can change
+      // anything, so the rest retry as the reads they are.
+      idempotent: method !== "tools/call",
     };
     const payload = await this.client.json<Record<string, unknown>>(prepared, options);
     if ("error" in payload) {

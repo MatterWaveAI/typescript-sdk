@@ -86,11 +86,15 @@ Connection failures are `APIConnectionError`; a per-attempt timeout
 (`timeoutMs`, default 60s, covering the connection and headers, not a stream's
 body) is `APITimeoutError`.
 
-A 429 whose code is `rate_limit_exceeded` and any 5xx (and connection errors)
-are retried up to `maxRetries` times (default 2) with exponential backoff and
-jitter, or for exactly `Retry-After` when the server sends one. A 429 whose
-code is `insufficient_quota` is thrown at once. A streamed request is retried
-only before its stream starts.
+A 429 whose code is `rate_limit_exceeded` is retried up to `maxRetries` times
+(default 2) with exponential backoff and jitter, or for exactly `Retry-After`
+when the server sends one. A 429 whose code is `insufficient_quota` is thrown
+at once. A 5xx or a dropped connection is retried the same way for a request
+that is safe to send twice (GET, PUT, DELETE, and the read-only MCP calls). A
+POST or PATCH -- a message, a key, an upload -- is sent again only when the
+connection was never made: after a 5xx, a timeout or a reply cut short, the
+first copy may already have taken effect, so the error is thrown instead. A
+streamed request is retried only before its stream starts.
 
 ## Tools, structured output and embeddings
 

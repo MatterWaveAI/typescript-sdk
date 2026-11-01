@@ -534,7 +534,7 @@ describe("attachments", () => {
   });
 
   it("retries an upload with the same form", async () => {
-    const { fetch, seen } = stubFetch([json({ detail: "busy" }, 503), json(attachmentBody(), 201)]);
+    const { fetch, seen } = stubFetch([json({ detail: "busy" }, 429), json(attachmentBody(), 201)]);
     const c = new MatterWave({ apiKey: API_KEY, baseUrl: BASE_URL, maxRetries: 1, fetch });
     const previous = setSleep(async () => {});
     try {

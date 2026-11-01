@@ -48,8 +48,8 @@ describe("per-call timeout", () => {
 describe("per-call maxRetries", () => {
   it("the call's own maxRetries wins, retrying where the client would not", async () => {
     const { fetch, calls } = stubFetch([
-      text("boom", 500),
-      text("boom", 500),
+      text("slow down", 429),
+      text("slow down", 429),
       json(completionBody()),
     ]);
     const { sleeps, restore } = recordSleeps();
@@ -80,7 +80,7 @@ describe("per-call maxRetries", () => {
   });
 
   it("left out, the client's maxRetries apply", async () => {
-    const { fetch, calls } = stubFetch([text("boom", 500), json(completionBody())]);
+    const { fetch, calls } = stubFetch([text("slow down", 429), json(completionBody())]);
     const { restore } = recordSleeps();
     try {
       await client(fetch, { maxRetries: 1 }).chat.completions.create(PROMPT);
@@ -94,7 +94,7 @@ describe("per-call maxRetries", () => {
     const sseBody =
       'event: delta\ndata: {"type":"delta","content":"He"}\n\n' +
       'event: done\ndata: {"type":"done","message":{"id":"m1","role":"assistant","content":"He"}}\n\n';
-    const { fetch, calls } = stubFetch([text("boom", 500), text(sseBody, 200, { "Content-Type": "text/event-stream" })]);
+    const { fetch, calls } = stubFetch([text("slow down", 429), text(sseBody, 200, { "Content-Type": "text/event-stream" })]);
     const { restore } = recordSleeps();
     try {
       const stream = await client(fetch, { maxRetries: 0 }).conversations.send("c-1", { content: "Hi" }, { maxRetries: 2 });

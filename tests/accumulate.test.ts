@@ -100,7 +100,7 @@ describe("conversations.items", () => {
 
 describe("client hooks", () => {
   it("onRequest and onResponse see every attempt, refusals included", async () => {
-    const { fetch, seen } = stubFetch([text("boom", 500), json(completionBody())]);
+    const { fetch, seen } = stubFetch([text("slow down", 429), json(completionBody())]);
     const requests: string[] = [];
     const statuses: number[] = [];
     const c = new MatterWave({
@@ -113,7 +113,7 @@ describe("client hooks", () => {
     });
     await c.chat.completions.create({ messages: [{ role: "user", content: "hi" }] });
     expect(requests).toEqual(["POST /v1/chat/completions", "POST /v1/chat/completions"]);
-    expect(statuses).toEqual([500, 200]);
+    expect(statuses).toEqual([429, 200]);
     expect(seen).toHaveLength(2);
   });
 
