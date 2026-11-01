@@ -44,6 +44,8 @@ jobs:
           git clone --depth 1 --branch "$BRANCH" https://github.com/MatterWaveAI/python-sdk ../python-sdk \
             || git clone --depth 1 https://github.com/MatterWaveAI/python-sdk ../python-sdk
       - run: pnpm lint
+      - name: No private ticket ids in tracked files
+        run: sh scripts/check-ticket-ids.sh
       - run: pnpm typecheck
       - run: pnpm test
         env:
