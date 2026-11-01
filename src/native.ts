@@ -7,14 +7,17 @@
  *     const key = await client.keys.create({ name: "ci", expires_in_days: 90 });
  *     const csv = await client.usage.exportCsv({ period: "2026-10" });
  *
- * These are the routes the web app's settings panes use, open to an API key
- * as its owner. Managing keys needs a key with `keys:manage` (or a
- * session), webhooks a key with `webhooks:manage`, the org usage report
- * (`usage.org`, `usage.exportCsv`) a key with `usage:read`, and moving a
- * budget cap an owner or admin. The audit trail (`client.audit`) is the one
- * exception among the reads: those routes gate on the membership row alone,
- * so an API key is refused there outright and a signed-in session is what
- * answers. The scope never widens the owner's role:
+ * These are the routes the web app's settings panes use, most of them open
+ * to an API key as its owner. Managing keys needs a key with `keys:manage`
+ * (or a person's token), webhooks a key with `webhooks:manage`, and the org
+ * usage report (`usage.org`, `usage.exportCsv`) a key with `usage:read`.
+ * The audit trail (`client.audit`), the member budgets and every budget cap
+ * (`budget.members`, `setOverageCap`, `setMemberDefaultCap`,
+ * `setMemberCap`) gate on the caller's membership row rather than a key
+ * scope: they refuse every API key with a 403 "Membership is managed by a
+ * person, not an API key." and answer a person's token (`accessToken`,
+ * `client.auth.person`) from an owner or admin. `CREDENTIALS` lists the
+ * credential every operation needs. The scope never widens the owner's role:
  * webhooks still need the owner to be an org owner or admin, and a member's
  * `usage:read` key sees only their own row. Notifications, announcements
  * and entitlements are the caller's own view, the way `/api/me` is: a
@@ -202,8 +205,9 @@ function auditQuery(params: AuditFilters): string {
 /**
  * `/api/org/audit`: the org's trail of who changed what, the reads the org
  * pane's audit tab makes. Owner or admin, and by membership row rather than
- * a token claim: the platform refuses an API key on these routes outright,
- * so they answer a signed-in session.
+ * a token claim: the platform refuses an API key 403 "Membership is managed
+ * by a person, not an API key.", so every method here needs a person's
+ * token (`accessToken`).
  */
 export class Audit extends Resource {
   /**
@@ -212,6 +216,8 @@ export class Audit extends Resource {
    * `since`/`until` bound the window (a bare one is read as UTC); `cursor`
    * is a previous page's `next_cursor`; `limit` is 1 to 200, 50 when
    * omitted. A cursor the API did not mint is the server's 422.
+   *
+   * An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`).
    */
   list(params: AuditListParams = {}, options: RequestOptions = {}): Promise<WithRequestId<AuditPage>> {
     if (params.limit !== undefined && !(params.limit >= 1 && params.limit <= AUDIT_LIMIT_MAX)) {
@@ -232,7 +238,7 @@ export class Audit extends Resource {
     );
   }
 
-  /** Every page of `list` under the same filters, first to last, each fetched as the previous one is consumed. */
+  /** Every page of `list` under the same filters, first to last, each fetched as the previous one is consumed. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   pages(
     params: Omit<AuditListParams, "cursor"> = {},
     options: RequestOptions = {},
@@ -240,12 +246,12 @@ export class Audit extends Resource {
     return pagesOf((cursor) => this.list({ ...params, cursor }, options));
   }
 
-  /** Every matching event, newest first, one at a time across the pages. */
+  /** Every matching event, newest first, one at a time across the pages. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   items(params: Omit<AuditListParams, "cursor"> = {}, options: RequestOptions = {}): AsyncGenerator<AuditEvent> {
     return itemsOf(this.pages(params, options));
   }
 
-  /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). */
+  /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   exportCsv(params: AuditFilters = {}, options: RequestOptions = {}): Promise<string> {
     return this.client.text(
       {
@@ -463,25 +469,31 @@ function checkCap(name: string, micros: number | null): void {
   }
 }
 
-/** `/api/budget`: the org's allowance, what it has spent past it, and the caps that stop it. Every member may read the balance; moving a cap is an owner or admin, and audited. */
+/**
+ * `/api/budget`: the org's allowance, what it has spent past it, and the
+ * caps that stop it. Every member may read the balance, with a key or a
+ * person's token; the member list and moving a cap are an owner's or
+ * admin's, audited, and refuse an API key 403 "Membership is managed by a
+ * person, not an API key.": they need a person's token (`accessToken`).
+ */
 export class BudgetClient extends Resource {
   /** `GET /api/budget`: the period, the overage and the caps, with the caller's own `member_cap` and `member_spent` beside the org's. */
   get(options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
     return this.call("GET", "/api/budget", undefined, options);
   }
 
-  /** `PUT /api/budget`: the most overage a period may run up, in micro-dollars at list price. 0 restores the plan's default. Owner or admin only. */
+  /** `PUT /api/budget`: the most overage a period may run up, in micro-dollars at list price. 0 restores the plan's default. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setOverageCap(params: SetOverageCapParams, options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
     checkCap("overage_cap_micros", params.overage_cap_micros);
     return this.call("PUT", "/api/budget", params, options);
   }
 
-  /** `GET /api/budget/members`: every member's cap in force and spend this month. Owner or admin only. */
+  /** `GET /api/budget/members`: every member's cap in force and spend this month. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   members(options: RequestOptions = {}): Promise<WithRequestId<MemberBudgetList>> {
     return this.call("GET", "/api/budget/members", undefined, options);
   }
 
-  /** `PUT /api/budget/members`: the cap every member without one of their own is held to; `null` lifts it. Owner or admin only. */
+  /** `PUT /api/budget/members`: the cap every member without one of their own is held to; `null` lifts it. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setMemberDefaultCap(
     params: SetMemberDefaultCapParams,
     options: RequestOptions = {},
@@ -490,7 +502,7 @@ export class BudgetClient extends Resource {
     return this.call("PUT", "/api/budget/members", params, options);
   }
 
-  /** `PUT /api/budget/members/{subject}`: one member's own cap; `null` removes it so the default applies. Owner or admin only, and only for a current member. */
+  /** `PUT /api/budget/members/{subject}`: one member's own cap; `null` removes it so the default applies. Owner or admin only, and only for a current member. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setMemberCap(
     subject: string,
     params: SetMemberCapParams,

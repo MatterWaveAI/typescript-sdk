@@ -618,7 +618,8 @@ export class Auth {
  * Custom instructions, the three levels the platform keeps. The org level
  * is additive policy every member is subject to; the conversation level
  * replaces the user's for that thread (`conversations.updateInstructions`).
- * Reads of the org level are admin-only, as are writes.
+ * Reads of the org level are admin-only, as are writes, and both need a
+ * person's token.
  */
 export class Instructions {
   constructor(private readonly client: MatterWave) {}
@@ -654,12 +655,12 @@ export class Instructions {
     );
   }
 
-  /** `GET /api/org/instructions`: the org's policy text. `PermissionDeniedError` for anyone but an owner or admin. */
+  /** `GET /api/org/instructions`: the org's policy text. `PermissionDeniedError` for anyone but an owner or admin. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   org(options: RequestOptions = {}): Promise<WithRequestId<OrgInstructions>> {
     return this.call("GET", "/api/org/instructions", undefined, options);
   }
 
-  /** `PUT /api/org/instructions`: set (or with an empty string, clear) the policy every member's turns are prefixed with. Owner or admin only. */
+  /** `PUT /api/org/instructions`: set (or with an empty string, clear) the policy every member's turns are prefixed with. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   updateOrg(
     params: { text: string },
     options: RequestOptions = {},

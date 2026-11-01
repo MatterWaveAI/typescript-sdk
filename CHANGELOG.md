@@ -89,6 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The methods whose routes refuse every API key -- `audit.list` /
+  `exportCsv`, `instructions.org` / `updateOrg` and `budget.members` /
+  `setOverageCap` / `setMemberDefaultCap` / `setMemberCap` -- say so: each
+  needs a person's token, and its docs quote the 403 a key gets ("Membership
+  is managed by a person, not an API key."). They were documented as working
+  with a key, which the platform never allowed.
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
 
