@@ -22,10 +22,12 @@
  * `client.org`, `client.members`, `client.invites` and `client.inviteLinks`
  * administer the organisation with a person's token, `client.passkeys`,
  * `client.mfa` and `client.accounts` are the sign-in ceremonies the web app
- * runs, `client.sync` pairs and syncs an edge box, `client.admin` is the
- * operator surface (the platform `admin` role, not an API key's), and
- * `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list tools, call one,
- * send a message).
+ * runs, `client.sync` pairs and syncs an edge box, `client.presets` are the
+ * org's agent presets a conversation answers with, `client.connections` its
+ * connectors to outside workspaces (Slack's) for a person's token,
+ * `client.admin` is the operator surface (the platform `admin` role, not an
+ * API key's), and `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list
+ * tools, call one, send a message).
  *
  * @module @matterwave/sdk
  */
@@ -83,6 +85,7 @@ export type {
   AuditListParams,
   AuditPage,
   Budget,
+  ConnectionUsage,
   ConversationTags,
   CreateAnnouncementParams,
   CreateKeyParams,
@@ -202,6 +205,32 @@ export type {
   UpdatedName,
   WaitOptions,
 } from "./account-types.js";
+export { ConnectionEvents, ConnectionIdentities, ConnectionRoutes, Connections, Presets } from "./connectors.js";
+export type {
+  Connection,
+  ConnectionEvent,
+  ConnectionEventPage,
+  ConnectionIdentity,
+  ConnectionIdentityList,
+  ConnectionList,
+  ConnectionRoute,
+  ConnectionRouteList,
+  ConnectionStatus,
+  CreateConnectionParams,
+  CreateConnectionRouteParams,
+  CreatePresetParams,
+  IdentityStatus,
+  ListConnectionEventsParams,
+  ListConnectionIdentitiesParams,
+  Preset,
+  PresetLimits,
+  PresetListing,
+  PresetTool,
+  SlackManifest,
+  UpdateConnectionParams,
+  UpdateConnectionRouteParams,
+  UpdatePresetParams,
+} from "./connector-types.js";
 export { Domains, IdentityProviders, InviteLinks, Invites, Members, OrgClient } from "./org.js";
 export type {
   ApproveDeviceParams,
@@ -258,6 +287,8 @@ export type {
   ConversationInstructions,
   ConversationList,
   ConversationMessage,
+  ConversationPreset,
+  ConversationSource,
   ConversationWithMessages,
   CreateConversationParams,
   DeletedConversation,
@@ -328,7 +359,9 @@ export {
   APITimeoutError,
   AuthenticationError,
   BadRequestError,
+  CONNECTOR_CONVERSATION_CODE,
   ConflictError,
+  ConnectorConversationError,
   DeviceAuthError,
   MatterWaveError,
   McpError,

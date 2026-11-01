@@ -84,7 +84,11 @@ Every refusal is an `APIError` subclass by status: `BadRequestError` (400),
 (404), `ConflictError` (409), `RateLimitError` (429), `ServerError` (5xx). Each carries the API's
 envelope (`message`, `type`, `code`, `param`) and `requestId`; a
 `RateLimitError` also carries `rateLimit` (limit, remaining, reset seconds)
-from the `X-RateLimit-*` headers. An error that
+from the `X-RateLimit-*` headers. A send, edit or regenerate in a
+conversation a connector opened (one started from Slack) is a
+`ConnectorConversationError`, the `ConflictError` whose `code` is
+`connector_conversation` and whose `source` names the connector, the
+channel and the thread's link; fork it to continue it here. An error that
 arrives inside a stream, after the 200, is an `APIError` with `status: null`.
 Connection failures are `APIConnectionError`; a per-attempt timeout
 (`timeoutMs`, default 60s, covering the connection and headers, not a stream's
@@ -231,8 +235,10 @@ every conversation of every page), and `search(q)`,
 `get(id, { full })`, `tree(id)`, `setActiveLeaf(id, messageId)`, `fork(id,
 messageId)`, `edit(id, messageId, { content })` and `regenerate(id, messageId)`
 cover the rest of the sidebar and the branch switcher; `update(id, { title,
-default_model })` renames the conversation and keeps the model its turns use
-(`null` clears the model); `context(id)` says how full the
+default_model, preset_id })` renames the conversation, keeps the model its
+turns use and puts it on one of the org's presets (`null` clears the model, or
+takes the conversation off its preset); `create({ preset_id })` starts one on a
+preset. `context(id)` says how full the
 model's window is, and `compact(id)` folds the earlier messages into a summary
 now (a `ConflictError` when there is nothing to fold yet). `client.me()` says
 who the key acts as.
@@ -434,7 +440,62 @@ org, transferring ownership and requiring SSO or two-factor an owner's alone.
 `domains.verify` resolves the route's 202 (the record is not there yet) like
 its 200, with `verified` false. One-time secrets -- an invite link's `token`
 and `url`, an SSO recovery `code` -- are on the one answer that carries them;
-keep them out of logs.
+keep them out of logs. `connections` is below, in [Presets and connections](#presets-and-connections).
+
+## Presets and connections
+
+A preset is one of the org's agents: a name, a model, instructions, tools and
+a welcome message. Any member reads them -- an API key with `chat:read`, so a
+terminal can offer them in a picker -- and an owner or admin writes them, a key
+with `presets:manage`. A conversation started on one answers with it.
+
+```ts
+const listing = await client.presets.list(); // data, tools, limits, can_manage
+const support = listing.data.find((p) => p.name === "Support")!;
+const conversation = await client.conversations.create({ preset_id: support.id });
+await client.conversations.update(conversation.id, { preset_id: null }); // back to its own model and instructions
+
+const preset = await client.presets.create({ name: "Triage", model: "grt-nano", instructions: "Sort, then route.", tools: [] });
+await client.presets.update(preset.id, { tools: null }); // null goes back to the default tools
+await client.presets.delete(preset.id);                   // its conversations keep answering with it
+```
+
+A connection joins the org to an outside workspace (Slack's): the provider
+posts events to its ingress URL, and each channel routed to a preset is
+answered at a member's expense. Connecting a workspace is a person's decision,
+so `connections` takes a person's token from an owner or admin and refuses
+every API key. Credentials go in on `create` and `update`, are checked with the
+provider there, and never come back out: no `Connection` carries them, and the
+client drops them from an answer that did.
+
+```ts
+const admin = new MatterWave({ accessToken: signin.session(token).accessToken });
+
+const slack = await admin.connections.create({ connector: "slack", display_name: "Acme Slack" }); // pending
+const manifest = await admin.connections.slackManifest(slack.id); // send the admin to manifest.create_url
+await admin.connections.update(slack.id, { credentials: { bot_token, signing_secret } });
+
+await admin.connections.routes.create(slack.id, { external_channel_id: "C0123", preset_id: support.id, paying_subject });
+for (const identity of (await admin.connections.identities.list(slack.id, { status: "unmapped" })).data) {
+  await admin.connections.identities.map(slack.id, identity.id, subject);
+}
+for await (const event of admin.connections.events.items(slack.id, { outcome: "rate_limited" })) {
+  console.log(event.received_at, event.outcome, event.detail);
+}
+console.log((await admin.usage.org()).by_connection); // what each connection's turns cost this month
+```
+
+`presets`: `list`, `get`, `create`, `update`, `delete`. `connections`: `list`
+(with the connectors on offer and the outcome and status vocabularies), `get`,
+`create`, `update` (`status` `active` or `disabled`, the rate limit, `config`,
+new credentials), `delete`, `rotateUrl` (a new ingress URL; the old one stops at
+once) and `slackManifest`; `connections.routes`: `list`, `create`, `update`,
+`delete`; `connections.identities`: `list`, `map`, `unmap`, `block`, `unblock`,
+and `forMember` (one member's accounts across connections);
+`connections.events`: `list` (by `outcome` and `since`, a cursor page),
+`pages`, `items`. A deployment without connectors answers the connection routes
+503, thrown as `ServerError` with the server's message, which names the setting
+to make (`MW_CONNECTOR_SECRET_KEY`).
 
 ## Receiving webhooks
 
@@ -492,8 +553,8 @@ organisation; for those, sign the person in at the identity provider instead.
 ## Signing a person in
 
 The routes that manage the organisation -- members and invites, the org's
-settings, its billing, the audit trail, the org's instructions, budget caps, and
-the operator console -- gate on the caller's membership, not a key scope, and answer every API key 403 "Membership is managed
+settings, its billing, the audit trail, the org's instructions, budget caps, its
+connections, and the operator console -- gate on the caller's membership, not a key scope, and answer every API key 403 "Membership is managed
 by a person, not an API key." A person's access token from the deployment's
 identity provider is what they take. Pass one as `accessToken`, the token itself
 or a function that returns it (or a promise of it); the client sends it where a
@@ -533,13 +594,14 @@ platform's route document (the drift test holds the two together):
 | --- | --- | --- |
 | `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view`, `plans.list`, `policy.stats`, `invites.lookup`, `inviteLinks.lookup`, `passkeys.startLogin` / `finishLogin`, `mfa.verifyLogin` / `startLoginEnrolment` / `confirmLoginEnrolment`, `accounts`, `sync.pair` |
 | `key` | any API key, or a person's token | `me`, `account` (but its password, email and deletion methods), `preferences`, `sessions`, `speech`, `billing.status`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get`, `sync.status` |
-| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, `exports`, the conversation reads, `messages.listFeedback`, `shares.list` |
+| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, `exports`, the conversation reads, `messages.listFeedback`, `shares.list`, `presets.list` / `get` |
 | `key:chat:write` | a key with `chat:write`, or a person's token | `imports`, `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
 | `key:keys:manage` | a key with `keys:manage`, or a person's token | `keys.create` / `update` / `rotate` / `revoke` |
 | `key:usage:read` | a key with `usage:read`, or a person's token | `usage.org`, `usage.exportCsv` |
 | `key:webhooks:manage` | a key with `webhooks:manage`, or a person's token | `webhooks` |
+| `key:presets:manage` | a key with `presets:manage`, or a person's token | `presets.create` / `update` / `delete` |
 | `key:conversations:import` | a key with `conversations:import` (an edge box's device key), or a person's token | `sync.push` |
-| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `account.changePassword`, the email change and `account.delete`, `org`, `members`, `invites` and `inviteLinks` (but their `lookup`s), `billing` (but `status`), `passkeys` and `mfa` (but the sign-in steps), `sync.mintPairingCode` / `devices` / `unpair`, `auth.device.lookup` / `approve` / `deny`, `admin` |
+| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `account.changePassword`, the email change and `account.delete`, `org`, `members`, `invites` and `inviteLinks` (but their `lookup`s), `billing` (but `status`), `passkeys` and `mfa` (but the sign-in steps), `sync.mintPairingCode` / `devices` / `unpair`, `auth.device.lookup` / `approve` / `deny`, `connections`, `admin` |
 
 A scope never widens a role: the org routes still need the org role they ask of a
 person, whichever credential carries it.

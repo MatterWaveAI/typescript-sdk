@@ -26,6 +26,8 @@ import {
   APIConnectionError,
   APIError,
   APITimeoutError,
+  CONNECTOR_CONVERSATION_CODE,
+  ConnectorConversationError,
   MatterWaveError,
   MissingAPIKeyError,
   ParseError,
@@ -38,6 +40,7 @@ import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsCli
 import { Accounts, Mfa, Passkeys, Sync } from "./native.js";
 import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
 import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
+import { Connections, Presets } from "./connectors.js";
 import { sseDataFrames } from "./sse.js";
 import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
 import type { LogLevel, Logger } from "./log.js";
@@ -58,6 +61,7 @@ import type {
 } from "./types.js";
 import type { Me } from "./conversation-types.js";
 import type { AppModelList } from "./conversation-types.js";
+import type { ConversationSource } from "./conversation-types.js";
 
 export const VERSION = "0.5.0";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
@@ -421,12 +425,37 @@ export function errorFromResponse(response: Response, raw: string): APIError {
   const detail = detailText(object?.detail);
   if (detail) {
     // The app's own routes answer `{"detail": ..., "request_id": ...}`,
-    // FastAPI's shape with the ids beside it, rather than OpenAI's.
-    return new Cls(detail, { status: response.status, requestId, retryAfter, rateLimit, body: payload });
+    // FastAPI's shape with the ids beside it, rather than OpenAI's. A few
+    // put a `code` beside the detail, and one of those names the thread
+    // the conversation is answered in.
+    const code = typeof object?.code === "string" ? object.code : null;
+    if (response.status === 409 && code === CONNECTOR_CONVERSATION_CODE) {
+      return new ConnectorConversationError(detail, {
+        status: response.status,
+        requestId,
+        retryAfter,
+        rateLimit,
+        body: payload,
+        source: sourceOf(object?.source),
+      });
+    }
+    return new Cls(detail, { status: response.status, code, requestId, retryAfter, rateLimit, body: payload });
   }
   const text = raw.trim();
   const message = text ? `HTTP ${response.status}: ${text.slice(0, 200)}` : `HTTP ${response.status}`;
   return new Cls(message, { status: response.status, requestId, retryAfter, rateLimit, body: payload });
+}
+
+/** The thread a `connector_conversation` refusal names, in the shape a conversation carries it. */
+function sourceOf(value: unknown): ConversationSource {
+  const object = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const text = (field: unknown): string | null => (typeof field === "string" ? field : null);
+  return {
+    connector: text(object.connector) ?? "",
+    connection_id: text(object.connection_id),
+    channel_label: text(object.channel_label),
+    url: text(object.url),
+  };
 }
 
 function errorFromEnvelope(payload: Record<string, unknown>, requestId: string | null): APIError {
@@ -783,6 +812,10 @@ export class MatterWave {
   readonly accounts: Accounts;
   /** Edge pairing and sync: an admin mints codes, a device key pushes. */
   readonly sync: Sync;
+  /** The org's agent presets: any member reads them, an owner or admin writes them. */
+  readonly presets: Presets;
+  /** The org's connectors to outside workspaces, their routes, identities and event log; a person's token. */
+  readonly connections: Connections;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -868,6 +901,8 @@ export class MatterWave {
     this.mfa = new Mfa(this);
     this.accounts = new Accounts(this);
     this.sync = new Sync(this);
+    this.presets = new Presets(this);
+    this.connections = new Connections(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

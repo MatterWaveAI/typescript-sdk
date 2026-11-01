@@ -127,9 +127,28 @@ export interface MemberUsage {
 }
 
 /**
+ * One connector connection's share of the month: what the turns it answered
+ * cost, biggest first. `connector` and `display_name` are null once the
+ * connection is deleted; its spend keeps its id.
+ */
+export interface ConnectionUsage {
+  connection_id: string;
+  connector: string | null;
+  display_name: string | null;
+  weighted_tokens: number;
+  cost_micros: number;
+  turns: number;
+  tokens: number;
+  last_active: string | null;
+}
+
+/**
  * `GET /api/org/usage`: one calendar month per member. `scope` is `org` for
  * an owner or admin (every member), `self` for anyone else (their own row);
- * `totals` are over the rows returned.
+ * `totals` are over the rows returned. `by_connection` is the part of those
+ * rows that connector turns made, per connection, scoped the same way: every
+ * connection for an owner or admin, the ones a member paid for otherwise;
+ * absent from an API that predates connectors.
  */
 export interface OrgUsage {
   period: string;
@@ -138,6 +157,7 @@ export interface OrgUsage {
   unit: "tokens" | (string & {});
   scope: "org" | "self";
   data: MemberUsage[];
+  by_connection?: ConnectionUsage[];
   totals: { weighted_tokens: number; cost_micros: number; turns: number; tokens: number };
 }
 

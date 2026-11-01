@@ -209,6 +209,32 @@ export const CREDENTIALS = {
   "sync.pair": "public",
   "sync.status": "key",
   "sync.push": "key:conversations:import",
+  // Any member reads the presets, which is what a picker offers; writing
+  // them is an owner's or admin's. Connecting a workspace is a person's
+  // decision: no key scope admits an API key to the connection routes.
+  "presets.list": "key:chat:read",
+  "presets.get": "key:chat:read",
+  "presets.create": "key:presets:manage",
+  "presets.update": "key:presets:manage",
+  "presets.delete": "key:presets:manage",
+  "connections.list": "person",
+  "connections.get": "person",
+  "connections.create": "person",
+  "connections.update": "person",
+  "connections.delete": "person",
+  "connections.rotateUrl": "person",
+  "connections.slackManifest": "person",
+  "connections.routes.list": "person",
+  "connections.routes.create": "person",
+  "connections.routes.update": "person",
+  "connections.routes.delete": "person",
+  "connections.identities.list": "person",
+  "connections.identities.map": "person",
+  "connections.identities.unmap": "person",
+  "connections.identities.block": "person",
+  "connections.identities.unblock": "person",
+  "connections.identities.forMember": "person",
+  "connections.events.list": "person",
 } as const satisfies Record<string, Credential>;
 
 /** What the platform answers an API key on a `person` route. */

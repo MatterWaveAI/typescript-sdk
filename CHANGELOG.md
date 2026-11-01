@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `client.presets`: the org's agent presets -- `list` (`PresetListing`:
+  `data`, `tools`, `limits`, `can_manage`), `get`, `create`, `update`
+  (`tools: null` goes back to the default set, `welcome_message: null`
+  drops it) and `delete`. Reading takes a key with `chat:read`, writing one
+  with `presets:manage`.
+- `conversations.create({ preset_id })` starts a conversation on a preset,
+  and `conversations.update(id, { preset_id })` puts one on a preset or,
+  with `null`, takes it off.
+- `client.connections`, for an owner's or admin's person token: `list`
+  (`ConnectionList`, with the connectors on offer and the notice, outcome
+  and identity-status vocabularies), `get`, `create` (`pending` without
+  credentials), `update` (status, rate limit, config, credentials),
+  `delete`, `rotateUrl` and `slackManifest`; `connections.routes` (`list`,
+  `create`, `update`, `delete`); `connections.identities` (`list`, `map`,
+  `unmap`, `block`, `unblock`, `forMember`); and `connections.events`
+  (`list` by `outcome` and `since`, `pages`, `items`). Credentials go in and
+  never come out: `Connection` has no field for them, and the client drops
+  them from an answer that carried them.
+- `OrgUsage.by_connection` (`ConnectionUsage`): what each connector
+  connection's turns cost in the month.
+- `tests/openapi.json` and the vendored route document are refreshed to the
+  platform with presets and connectors, and a contract test holds each
+  preset, connection and route write to its request schema.
+- `Conversation.preset_id`, `Conversation.preset` (`ConversationPreset`:
+  the id and name) and `Conversation.source` (`ConversationSource`: the
+  `connector`, `connection_id`, `channel_label` and `url` of the thread a
+  connector opened the conversation from), each null when the server does
+  not send it.
+- `ConnectorConversationError` and `CONNECTOR_CONVERSATION_CODE`: the
+  `ConflictError` with `code` `connector_conversation`, thrown by a send,
+  edit or regenerate in a conversation a connector opened, which is
+  answered in its own thread alone. Its `source` is the thread; a fork of
+  the conversation takes messages.
+- An app-route refusal (`{"detail": ...}`) that carries a `code` beside
+  the detail now has it on the error's `code`.
 - Organisation administration, for a person's token: `org` (`get`,
   `rename`, `close`, the model allow-list, sharing and the org's share
   links, SSO with its recovery code, two-factor, and `org.domains` and
@@ -262,7 +297,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `client.account` — the person's own account, the writes the Account and
+- `client.account` â€” the person's own account, the writes the Account and
   Preferences panes make: `rename({ full_name })`
   (`PATCH /api/me`), `acceptTerms({ version })`, `completeOnboarding()`,
   `changePassword({ current_password, new_password })`
@@ -281,7 +316,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Preferences.billing_receipts` is typed `true` only -- receipts are
   transactional mail the server refuses to switch off, and now so is the
   type.
-- `client.exports` and `client.imports` — the account export and history
+- `client.exports` and `client.imports` â€” the account export and history
   import as jobs: `exports.start()` (`POST /api/me/export`, 202),
   `exports.get(id)` with a fresh signed `download_url` once ready,
   `exports.download(job | url)` for the bytes behind the signed link, and
@@ -290,7 +325,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (409 while one does); `ExportJob`, `ExportJobStatus`, `ImportJob` and
   `ImportJobList` spell the rows, progress counts and errors as the worker
   moves them.
-- `client.members` — the team management family: `list()` (every
+- `client.members` â€” the team management family: `list()` (every
   member, the caller's own role, the seats), `setRole(subject, { role })`,
   `transferOwnership(subject)` (one step: target becomes owner, caller
   admin), `remove(subject)` (leaving is removing yourself), the mailed
@@ -307,7 +342,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method is in the doc comments.
 - `OrgMember`, `MemberList`, `OrgInvite`, `InviteLinkRow`,
   `CreatedInviteLink`, `InvitePreview`, `JoinPreview` and `OrgRole` types.
-- `client.org` — the org management family: `get()` and
+- `client.org` â€” the org management family: `get()` and
   `rename({ name })`, `close({ confirm })` (the org's name typed exactly;
   danger documented; owner only and idempotent), the model allow-list --
   `models()` and `setModels({ allowed: string[] | null })` (the house
@@ -328,7 +363,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OrgProfile`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
   `SsoSettings`, `RecoveryCode`, `DnsChallenge`, `DomainVerification`,
   `OrgDomainRow`, `OrgIdpRow` and `AttachIdpParams` types.
-- `client.billing` — plans and billing: `plans()` (`GET /api/plans`,
+- `client.billing` â€” plans and billing: `plans()` (`GET /api/plans`,
   the public catalog, cheapest first, with the price table and the house
   model; no key needed), `switchPlan({ plan, reason? })` (`PUT /api/plan`,
   the move to Free -- a paid code is the server's 402 pointing at
@@ -340,7 +375,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner or admin by membership row and refuse an API key.
 - `Plan`, `PlanCatalog`, `PlanEvent`, `Invoice`, `BillingStatus`,
   `DunningState` and `Collection` types.
-- `client.passkeys` — passkeys, WebAuthn relayed through the identity
+- `client.passkeys` â€” passkeys, WebAuthn relayed through the identity
   provider: `list()`, `startRegistration()`,
   `verifyRegistration(id, { credential, name })`, `rename(id, { name })`,
   `remove(id)` for the signed-in, and the sign-in ceremony --
@@ -348,7 +383,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `finishLogin({ challenge, credential })`, anonymous, whose `options`
   feed `navigator.credentials` and whose sealed `challenge` comes back
   untouched.
-- `client.mfa` — the second factor: `state()`,
+- `client.mfa` â€” the second factor: `state()`,
   `startTotp()`, `confirmTotp({ code })` (the ten recovery codes come back
   shown-once), `removeTotp({ code? | recovery_code? })` (a proof is
   required; refused outright for a member of an org that requires MFA),
@@ -358,12 +393,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sealed challenge the password step handed out being the credential.
   Code shapes are checked before an attempt is spent: six digits (or
   eight), spaces removed.
-- `client.accounts` — several accounts signed in on one browser:
+- `client.accounts` â€” several accounts signed in on one browser:
   `list()`, `switch({ slot })`, `logout(slot)`, `logoutAll()`. These ride
   the session cookies (pass the browser's via `defaultHeaders`), answer
   only what the envelopes already told the browser, and are anonymous on
   purpose; slots are 1 to 3.
-- `client.speech` — dictation's server route:
+- `client.speech` â€” dictation's server route:
   `transcribe({ file, filename?, contentType?, language? })` (`POST
   /api/speech/transcribe`, multipart, one clip up to 10 MiB, the words
   back, nothing kept). Media types the route does not take are refused
@@ -372,7 +407,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Passkey`, `PasskeyList`, `TotpEnrolment`, `MfaState`,
   `RecoveryCodesReissued`, `SignedInAccount`, `AccountRoster`,
   `Transcription`, and the params interfaces beside them).
-- `client.edge` — edge pairing and sync, the resource side of
+- `client.edge` â€” edge pairing and sync, the resource side of
   the edge design: one namespace, two scoping halves. An admin mints and
   manages: `mint({ name })` (`POST /api/sync/pairings`, a ten-minute
   twelve-character Crockford code), `devices()`, `unpair(keyId)` -- owner
@@ -392,7 +427,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.
 
-- `webhooks.unwrap(payload, headers, secret)` — the receiver's half of
+- `webhooks.unwrap(payload, headers, secret)` â€” the receiver's half of
   webhooks: verify a delivered event and decode it. The
   `MatterWave-Signature` header (`t=<unix>,v1=<hex HMAC-SHA256>` over
   `<t>.<body>`) is checked with a constant-time compare, any `v1=` element
@@ -404,25 +439,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WebCrypto, so the module runs in Node and browsers alike, and the two
   entry points are async the way the runtimes' own crypto is.
 - Per-call `timeoutMs` and `maxRetries` on any call's options, overriding
-  the client's settings for that one call — a single long call can take
+  the client's settings for that one call â€” a single long call can take
   minutes without holding the whole client at its pace.
-- `client.lastResponse` — the last HTTP response received, success or
+- `client.lastResponse` â€” the last HTTP response received, success or
   refusal: status, headers, the request id, `Retry-After` and the
   `X-RateLimit-*` window the parsed models leave behind, as a `RawResponse`.
-- `client.chat.completions.parse({ schema })` — `create` plus validation:
+- `client.chat.completions.parse({ schema })` â€” `create` plus validation:
   the answer's text read as JSON and parsed by the caller's zod schema,
   whose value comes back. A non-JSON answer is a `ParseError`; a schema
   failure throws the schema's own `ZodError`.
-- `stream.accumulate()` on both streams — the whole answer or turn,
+- `stream.accumulate()` on both streams â€” the whole answer or turn,
   accumulated: iterate for the pieces, call this for the whole.
-- `client.conversations.items()` and the generic `itemsOf(pages)` — every
+- `client.conversations.items()` and the generic `itemsOf(pages)` â€” every
   item of every page, one at a time, the item-level paginator over any
   cursor-paginated list.
-- `onRequest` / `onResponse` client hooks — the request about to go out
+- `onRequest` / `onResponse` client hooks â€” the request about to go out
   and the response that came back, once per attempt, for logging.
-- `UnprocessableEntityError` — the 422 validation refusal as its own
+- `UnprocessableEntityError` â€” the 422 validation refusal as its own
   class, the per-field messages joined onto the error.
-- `client.audit.list()` and `client.audit.exportCsv()` — the org's audit
+- `client.audit.list()` and `client.audit.exportCsv()` â€” the org's audit
   trail (`GET /api/org/audit`, `GET /api/org/audit.csv`), the reads the org
   pane's audit tab makes: one page of `audit_events` newest first (`data`,
   `next_cursor`, `actions`) narrowed by `event` (an action exactly or as a
@@ -452,7 +487,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `client.admin.announcements`: the operator's announcement CRUD
   (`/api/admin/announcements`), the routes the admin console's Announcements
-  tab speaks — `list()`, `create({ message, severity?, link?, starts_at?,
+  tab speaks â€” `list()`, `create({ message, severity?, link?, starts_at?,
   ends_at?, dismissible? })`, `update(id, { message?, severity?, link?,
   starts_at?, ends_at?, dismissible?, end_now? })` and `delete(id)`. These
   are operator routes: they need the platform `admin` role, and an API key
