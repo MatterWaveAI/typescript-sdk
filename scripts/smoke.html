@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- The browser half of scripts/smoke.mjs: serve the repository root, open
+     this page headless, and read the verdict out of the DOM. -->
+<meta charset="utf-8" />
+<title>SDK smoke</title>
+<pre id="out">pending</pre>
+<script type="module">
+  import { smoke } from "./smoke.mjs";
+  const out = document.getElementById("out");
+  smoke().then(
+    (verdict) => (out.textContent = verdict),
+    (error) => (out.textContent = `failed: ${error.message}`),
+  );
+</script>

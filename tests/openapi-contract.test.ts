@@ -10,8 +10,8 @@
  * The document is read from the platform checkout when this repo sits
  * inside it; a standalone checkout reads the snapshot in tests/openapi.json,
  * copied from the export. The /api routes are not in the export (it is the
- * `/v1` contract), so they are held to the API by the mocked-transport
- * tests instead.
+ * `/v1` contract); route-drift.test.ts holds them to the platform's whole
+ * route document, and the mocked-transport tests hold their bodies.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -77,18 +77,6 @@ describe("the exported OpenAPI document", () => {
       Object.values(OPERATIONS).map((op) => [op.operationId, [op.method, op.path]]),
     );
     expect(exposed).toEqual(exported);
-  });
-
-  // The conversation, /api/me and device-login routes are the app's, not the
-  // `/v1` contract, so the export does not carry them yet. Where it names one
-  // of their paths the method must agree; until it names any, the check is
-  // skipped rather than passing on nothing.
-  const document = load();
-  const named = Object.entries(APP_OPERATIONS).filter(([, [, path]]) => path in document.paths);
-  it.skipIf(named.length === 0)("matches the app routes where the export names them", () => {
-    for (const [key, [method, path]] of named) {
-      expect(document.paths[path], `${key}: ${method} ${path}`).toHaveProperty(method.toLowerCase());
-    }
   });
 
   it("names client methods that exist", () => {

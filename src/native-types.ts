@@ -4,6 +4,9 @@
  * Their bodies may grow; a field added later is ignored, not refused.
  */
 
+import type { Dunning, ModelPrice } from "./account-types.js";
+import type { OrgRole, RecoveryCode } from "./org-types.js";
+
 // --- keys --------------------------------------------------------------------
 
 /**
@@ -578,12 +581,6 @@ export interface SessionRow {
   ip: string | null;
 }
 
-/** `GET /api/me/sessions`: the caller's live sessions, the current one flagged. */
-export interface SessionList {
-  current_id: string | null;
-  sessions: SessionRow[];
-}
-
 /** The answer to `revokeSession`: which session went, and whether it was the caller's own. */
 export interface SessionRevoked {
   status: string;
@@ -593,36 +590,6 @@ export interface SessionRevoked {
 /** The answer to `revokeOtherSessions`: how many other sessions ended. */
 export interface SessionsRevokedOthers {
   revoked: number;
-}
-
-/** The mail the caller has opted into. `billing_receipts` is transactional mail and is always sent; the toggle only says so. */
-export interface EmailPreferences {
-  product_updates: boolean;
-  usage_alerts: boolean;
-  billing_receipts: true;
-}
-
-export interface NotificationPreferences {
-  budget_warn: boolean;
-}
-
-/**
- * `GET /api/me/preferences`, and the answer to `update`: the whole shape,
- * validated by the server -- an unknown locale or a receipts toggle set to
- * false is a 422 before anything is written.
- */
-export interface Preferences {
-  email: EmailPreferences;
-  /** A BCP-47 language tag such as `en` or `en-GB`; null is the server's default. */
-  locale: string | null;
-  notifications: NotificationPreferences;
-}
-
-/** The body of `account.updatePreferences`: the whole shape, as `get` returned it. */
-export interface UpdatePreferencesParams {
-  email?: Partial<EmailPreferences>;
-  locale?: string | null;
-  notifications?: Partial<NotificationPreferences>;
 }
 
 /** The body of `account.changePassword`. A session only: an API key acts for its owner, and its owner's password is not the key's to change. */
@@ -755,39 +722,6 @@ export interface ExportJobStatus extends ExportJob {
 /** Where an import stands: `pending`, `running`, `done`, or `failed` (with `error` beside it). */
 export type ImportJobStatusKind = "pending" | "running" | "done" | "failed";
 
-/**
- * One ChatGPT/Claude history import, as `POST /api/me/imports` (202)
- * answers and the two GETs report it. The counts move as the worker runs:
- * `conversations_done` toward `conversations_total`, `messages_created`
- * beside it, and the rows it had to leave behind counted in
- * `conversations_skipped` and `attachments_skipped`.
- */
-export interface ImportJob {
-  id: string;
-  status: ImportJobStatusKind | (string & {});
-  /** `chatgpt` or `claude` -- what the export was parsed as. */
-  source: string;
-  filename: string;
-  size_bytes: number;
-  conversations_total: number;
-  conversations_done: number;
-  conversations_created: number;
-  conversations_existing: number;
-  conversations_skipped: number;
-  messages_created: number;
-  attachments_skipped: number;
-  branches_dropped: number;
-  error: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
-
-/** `GET /api/me/imports`: the caller's recent imports, newest first. */
-export interface ImportJobList {
-  data: ImportJob[];
-}
-
 /** The body of `imports.start`: one export file, up to 100 MiB. */
 export interface UploadImportParams {
   /** The file: a `Blob` (a `File` is one), or bytes. */
@@ -796,9 +730,6 @@ export interface UploadImportParams {
 }
 
 // --- members, invites, join -----------------------------------------------------
-
-/** An org role. Ownership moves only between owners; nobody demotes or removes the last owner. */
-export type OrgRole = "owner" | "admin" | "member" | "viewer";
 
 /**
  * One member, as `GET /api/org/members` lists them and the role, invite
@@ -823,13 +754,6 @@ export interface MemberSeats {
   billed: number | null;
 }
 
-/** `GET /api/org/members`: every member, the caller's own `role`, and the seats. */
-export interface MemberList {
-  data: OrgMember[];
-  role: OrgRole | (string & {});
-  seats: MemberSeats;
-}
-
 /** The body of `members.setRole`. */
 export interface SetRoleParams {
   role: OrgRole;
@@ -852,21 +776,10 @@ export interface OrgInvite {
   status: InviteStatus | (string & {});
 }
 
-/** `GET /api/org/invites`. */
-export interface InviteList {
-  data: OrgInvite[];
-}
-
 /** The answer to `create` and `resend`: the invite, whether its mail went, and the reason when it did not (the row exists either way; a resend is the recovery). */
 export interface CreatedInvite extends OrgInvite {
   mail: "sent" | "failed";
   detail?: string;
-}
-
-/** The body of `members.createInvite`. */
-export interface CreateInviteParams {
-  email: string;
-  role?: OrgRole;
 }
 
 /** What the anonymous `/join` page asks of a mailed invite: whose org, which address, which role, and whether the link still works. */
@@ -902,24 +815,10 @@ export interface InviteLinkRow {
   status: InviteStatus | (string & {});
 }
 
-/** `GET /api/org/invite-links`: the links not revoked, with their uses. */
-export interface InviteLinkList {
-  data: InviteLinkRow[];
-}
-
 /** The answer to `createInviteLink`: the row, and `token` and `url`, shown this once. */
 export interface CreatedInviteLink extends InviteLinkRow {
   token: string;
   url: string;
-}
-
-/** The body of `members.createInviteLink`. Never an owner link. A month at most and a team's worth of uses: a link is pasted where the org cannot see who reads it. */
-export interface CreateInviteLinkParams {
-  role?: OrgRole;
-  /** Joins the link admits, 1 to 500; 10 when omitted. */
-  max_uses?: number;
-  /** Days it lives, 1 to 30; 7 when omitted. */
-  expires_in_days?: number;
 }
 
 // --- org management -------------------------------------------------------------
@@ -935,11 +834,6 @@ export interface OrgProfile {
 /** The body of `org.rename`. */
 export interface RenameOrgParams {
   name: string;
-}
-
-/** The body of `org.close`: the org's name, typed exactly, as the confirmation. */
-export interface CloseOrgParams {
-  confirm: string;
 }
 
 /**
@@ -964,38 +858,9 @@ export interface OrgClosed {
   identity_removed: boolean;
 }
 
-/** One model in the org's allow-list view: whether the org permits it, and `locked` for the house model, which never turns off. */
-export interface ModelPolicyEntry {
-  id: string;
-  label: string;
-  partner: boolean;
-  context_window: number | null;
-  research_preview: boolean;
-  allowed: boolean;
-  locked: boolean;
-}
-
-/**
- * `GET /api/org/models`, and the answer to `setModels`: the plan's models
- * with the org's switch on each, ids the org switched off that the plan no
- * longer offers (`unlisted`), and whether the allow-list is in force
- * (`restricted`; null meant "everything the plan permits").
- */
-export interface ModelPolicy {
-  house_model: string | null;
-  data: ModelPolicyEntry[];
-  unlisted: string[];
-  restricted: boolean;
-}
-
 /** The body of `org.setModels`: the ids members may use, or null for every model the plan permits. The house model is added back whatever is sent. */
 export interface SetModelPolicyParams {
   allowed: string[] | null;
-}
-
-/** `GET`/`PUT /api/org/sharing`: whether members may share conversations by link. Switching it off stops every existing link at once, without revoking them. */
-export interface SharingPolicy {
-  enabled: boolean;
 }
 
 /** One share link as the org's view lists it: every link a member made, with who made it. Never the tokens. */
@@ -1013,31 +878,9 @@ export interface OrgShareRow {
   status: "active" | "expired" | "revoked" | (string & {});
 }
 
-/** `GET /api/org/shares`: every link the org's members made, newest first. */
-export interface OrgShareList {
-  data: OrgShareRow[];
-}
-
 /** The answer to `org.revokeShare`. */
 export interface OrgShareRevoked {
   status: string;
-}
-
-/** `GET /api/org/sso`: the policy, plus what would stop it being turned on, so the pane can say why before the switch is flipped. */
-export interface SsoSettings {
-  sso_required: boolean;
-  blockers: string[];
-}
-
-/** A break-glass sign-in code. `code` is in the answer that minted it and nowhere else (`shown_once`). */
-export interface RecoveryCode {
-  id: string;
-  created_at: string;
-  expires_at: string;
-  created_by: string;
-  used_at: string | null;
-  code?: string;
-  shown_once?: true;
 }
 
 /** The answer to `setSso({ sso_required: true })`: enforced, with the way back in minted in the same breath -- the recovery code is shown exactly once. */
@@ -1075,20 +918,6 @@ export interface DomainChallengeAnswer {
   record: DnsChallenge;
 }
 
-/** Where a domain's verification stands. On a not-yet check (`verifyDomain` answering 202) `detail` says what was wrong and `found` lists the TXT records DNS actually had. */
-export interface DomainVerification {
-  domain: string;
-  verified: boolean;
-  verified_at: string | null;
-  verified_by: string | null;
-  method: string | null;
-  last_checked_at: string | null;
-  last_error: string | null;
-  record?: DnsChallenge;
-  detail?: string;
-  found?: string[];
-}
-
 /** One claimed domain: the claim, and whether it has been proven. */
 export interface OrgDomainRow {
   domain: string;
@@ -1096,11 +925,6 @@ export interface OrgDomainRow {
   verified_at: string | null;
   verified_by: string | null;
   created_at: string;
-}
-
-/** `GET /api/org/domains`. */
-export interface DomainList {
-  data: OrgDomainRow[];
 }
 
 /** The body of `org.claimDomain`. */
@@ -1126,55 +950,7 @@ export interface IdpList {
   data: OrgIdpRow[];
 }
 
-/** The body of `org.attachIdp`. OIDC only in this slice; the issuer must be an https:// URL. */
-export interface AttachIdpParams {
-  kind: "oidc";
-  name: string;
-  issuer: string;
-  client_id: string;
-  client_secret: string;
-  scopes?: string[];
-}
-
 // --- plans and billing ----------------------------------------------------------
-
-/** One plan of the public catalog, cheapest first, with its price list beside it. */
-export interface Plan {
-  code: string;
-  name: string;
-  price_cents_monthly: number;
-  price_cents_annual: number;
-  included_tokens: number;
-  /** Null on a plan sold flat: on a per-seat plan the price, this allowance and the default overage cap are each per seat. */
-  included_tokens_per_seat: number | null;
-  per_seat: boolean;
-  overage_enabled: boolean;
-  default_overage_cap_micros: number;
-  /** A new subscriber's free trial, in days; 0 is none. */
-  trial_days: number;
-  /** The model ids this plan's price covers. */
-  models: string[];
-  limits: Record<string, unknown>;
-}
-
-/** One row of the price list beside the catalog: label, multiplier and list price per million tokens. */
-export interface PlanModelPrice {
-  model: string;
-  label: string;
-  multiplier: number;
-  input_usd_per_m: number;
-  output_usd_per_m: number;
-  partner: boolean;
-  research_preview: boolean;
-  context_window: number | null;
-}
-
-/** `GET /api/plans`: the public catalog, cheapest first, the price table, and the house model to default to. No key needed. */
-export interface PlanCatalog {
-  data: Plan[];
-  models: PlanModelPrice[];
-  default_model: string | null;
-}
 
 /** The body of `billing.switchPlan`: the plan's code and, optionally, why. No money moves here -- a paid plan is a 402 pointing at checkout. */
 export interface SwitchPlanParams {
@@ -1195,17 +971,6 @@ export interface PlanEvent {
   created_at: string;
 }
 
-/** `GET /api/plan/history`. */
-export interface PlanHistory {
-  data: PlanEvent[];
-}
-
-/** The body of `billing.checkout`: the plan to subscribe to, monthly unless `annual`. */
-export interface CheckoutParams {
-  plan: string;
-  annual?: boolean;
-}
-
 /** The answer to `checkout` and `portal`: the Stripe URL to redirect to. */
 export interface BillingUrl {
   url: string;
@@ -1217,60 +982,11 @@ export interface Collection {
   days_until_due: number | null;
 }
 
-/** One step of the late-payment schedule. */
-export interface DunningStep {
-  stage: string;
-  at: string;
-}
+/** The open late-payment episode on `BillingStatus.dunning`: the name `Dunning` has too. */
+export type DunningState = Dunning;
 
-/** The open late-payment episode, as the banner and billing pane read it. Null in good standing. */
-export interface DunningState {
-  stage: string;
-  source: string;
-  first_overdue_at: string;
-  days_overdue: number;
-  outstanding_micros: number;
-  schedule: Record<string, unknown>;
-  next_step: DunningStep | null;
-  overage_stopped: boolean;
-  limited: { stops_overage: boolean; blocks_new_keys: boolean; blocks_upgrades: boolean };
-  auto_suspend: boolean;
-}
-
-/** One invoice, newest first as `GET /api/billing/invoices` lists them, with Stripe's hosted page and PDF beside it. */
-export interface Invoice {
-  id: string;
-  number: string | null;
-  status: string;
-  collection_method: string;
-  currency: string;
-  amount_due_micros: number;
-  amount_remaining_micros: number;
-  due_at: string | null;
-  paid_at: string | null;
-  hosted_invoice_url: string | null;
-  invoice_pdf: string | null;
-  issued_at: string;
-}
-
-/** `GET /api/billing/invoices`. */
-export interface InvoiceList {
-  data: Invoice[];
-}
-
-/**
- * `GET /api/billing/status`: what a billing page renders, in one call --
- * the entitlements any member may read, whether the buy/manage buttons
- * exist at all (`billing_enabled`), how the org pays, and the open
- * late-payment episode when there is one. Deliberately readable by any
- * member: a non-admin is told to ask an admin rather than shown a 403.
- */
-export type BillingStatus = Entitlements & {
-  billing_enabled: boolean;
-  collection_method: string;
-  days_until_due: number | null;
-  dunning: DunningState | null;
-};
+/** One row of the price list beside the catalog: the name `ModelPrice` has too. */
+export type PlanModelPrice = ModelPrice;
 
 // --- passkeys -------------------------------------------------------------------
 
@@ -1437,22 +1153,6 @@ export interface AccountLoggedOut {
 }
 
 // --- speech -----------------------------------------------------------------------
-
-/** The body of `speech.transcribe`: one short clip, up to 10 MiB, with an optional BCP 47 `language` hint. The audio is held for the length of the request and nowhere else. */
-export interface TranscribeParams {
-  /** The clip: a `Blob` (a `File` is one; its `type` is the content type), or bytes with `contentType`. */
-  file: Blob | ArrayBuffer | Uint8Array;
-  filename?: string;
-  /** The clip's media type when `file` is bare bytes; a `Blob`'s own `type` wins. */
-  contentType?: string;
-  /** A BCP 47 tag such as `en-GB`; at most 35 characters. */
-  language?: string;
-}
-
-/** The answer to `transcribe`: the words. Nothing here sends a message; the text comes back for the caller to review. */
-export interface Transcription {
-  text: string;
-}
 
 // --- edge pairing / sync ----------------------------------------------------------
 
