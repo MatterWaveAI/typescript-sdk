@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Examples, each run by `tests/examples.test.ts` against a stubbed fetch:
+  `chat`, `streaming`, `structured-output`, `webhook-receiver`,
+  `device-sign-in` (an API key or a person's token) and `pagination`.
+- A generated API reference: the `docs` workflow builds it with typedoc
+  (warnings fail the build), checks every export has its page
+  (`scripts/check-reference.mjs`) and uploads it as the `api-reference`
+  artifact. `EntitlementLimits` and `ListConversationsParams` are exported,
+  since public signatures name them.
 - A person's token in place of an API key: the `accessToken` client option,
   the token itself or a function asked for it before each call (it may
   return a promise). The routes that manage the organisation, which refuse

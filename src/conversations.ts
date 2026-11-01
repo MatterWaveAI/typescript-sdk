@@ -163,6 +163,7 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
   result: ConversationMessage | null = null;
   private consumed = false;
 
+  /** @internal A turn's response, as `conversations.send`, `edit` and `regenerate` open it. */
   constructor(
     private readonly client: MatterWave,
     private readonly prepared: Prepared,

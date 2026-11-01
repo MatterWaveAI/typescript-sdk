@@ -19,6 +19,8 @@
  * surface (the platform `admin` role, not an API key's), and `client.mcp`
  * speaks the `/mcp` JSON-RPC endpoint (list tools, call one, send a
  * message).
+ *
+ * @module @matterwave/sdk
  */
 
 export {
@@ -106,10 +108,12 @@ export type {
   WebhookEndpoint,
   WebhookEndpointList,
   WebhookEndpointWithSecret,
+  EntitlementLimits,
 } from "./native-types.js";
 export type {
   AppModel,
   AppModelList,
+  ListConversationsParams,
   Conversation,
   ConversationContext,
   ConversationFilter,

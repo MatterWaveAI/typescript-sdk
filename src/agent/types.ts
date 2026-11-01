@@ -11,12 +11,9 @@ export { CONTRACT, CONTRACT_SHA256 } from "./contract.js";
 /** The contract's own version, semver: `CONTRACT.contract_version`. */
 export const CONTRACT_VERSION: string = CONTRACT.contract_version;
 
-type ContractTool = (typeof CONTRACT.tools)[number];
-type ContractMode = (typeof CONTRACT.approval_modes)[number];
-
-export type ToolName = ContractTool["name"];
-export type ToolKind = ContractTool["kind"];
-export type ModeName = ContractMode["name"];
+export type ToolName = (typeof CONTRACT.tools)[number]["name"];
+export type ToolKind = (typeof CONTRACT.tools)[number]["kind"];
+export type ModeName = (typeof CONTRACT.approval_modes)[number]["name"];
 export type Decision = "allow" | "ask" | "deny";
 export type Refusal = keyof typeof CONTRACT.confinement.refusals;
 export type EditFailure = keyof typeof CONTRACT.edit.errors;

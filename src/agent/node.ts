@@ -10,6 +10,8 @@
  *     const target = confine(root, "src/app.ts");       // or PathRefusedError
  *     const next = applyEdit(text, oldString, newString); // or EditError
  *     const diff = unifiedDiff(text, next, target.relative);
+ *
+ * @module @matterwave/sdk/agent
  */
 
 export * from "./index.js";

@@ -526,6 +526,32 @@ copy's SHA-256 so a hand edit fails, and compares it with the source whenever
 the Python SDK sits beside this checkout (or `MATTERWAVE_AGENT_CONTRACT` names
 its `contract.json`, as CI does after cloning it).
 
+## Examples and reference
+
+Each file in `examples/` runs as a script (`npx tsx examples/<name>.ts`) and
+reads `MATTERWAVE_BASE_URL` and `MATTERWAVE_API_KEY`; each exports its `run`,
+which `tests/examples.test.ts` calls against a stubbed `fetch`.
+
+| File | Shows |
+| --- | --- |
+| `chat.ts` | one completion and its token count |
+| `streaming.ts` | text as it arrives, then the finish reason and usage |
+| `structured-output.ts` | `chat.completions.parse` with a zod schema |
+| `webhook-receiver.ts` | a fetch-style handler that verifies each delivery with `webhooks.unwrap` |
+| `device-sign-in.ts` | device sign-in, for an API key or for a person's own token |
+| `pagination.ts` | `items()`, `searchItems()` and `pagesOf` / `itemsOf` |
+| `mcp-via-sdk.ts` | the `/mcp` endpoint through `client.mcp` |
+
+The API reference is generated with typedoc over the two entry points; the
+`docs` workflow builds it on every push, fails on any typedoc warning, and
+uploads it as the `api-reference` artifact. To build and check it locally:
+
+```
+pnpm build
+pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts   --excludeInternal --treatWarningsAsErrors --out reference --json reference.json
+node scripts/check-reference.mjs reference.json
+```
+
 ## Development
 
 ```
