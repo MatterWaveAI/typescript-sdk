@@ -1136,6 +1136,142 @@ export interface AttachIdpParams {
   scopes?: string[];
 }
 
+// --- plans and billing ----------------------------------------------------------
+
+/** One plan of the public catalog, cheapest first, with its price list beside it. */
+export interface Plan {
+  code: string;
+  name: string;
+  price_cents_monthly: number;
+  price_cents_annual: number;
+  included_tokens: number;
+  /** Null on a plan sold flat: on a per-seat plan the price, this allowance and the default overage cap are each per seat. */
+  included_tokens_per_seat: number | null;
+  per_seat: boolean;
+  overage_enabled: boolean;
+  default_overage_cap_micros: number;
+  /** A new subscriber's free trial, in days; 0 is none. */
+  trial_days: number;
+  /** The model ids this plan's price covers. */
+  models: string[];
+  limits: Record<string, unknown>;
+}
+
+/** One row of the price list beside the catalog: label, multiplier and list price per million tokens. */
+export interface PlanModelPrice {
+  model: string;
+  label: string;
+  multiplier: number;
+  input_usd_per_m: number;
+  output_usd_per_m: number;
+  partner: boolean;
+  research_preview: boolean;
+  context_window: number | null;
+}
+
+/** `GET /api/plans`: the public catalog, cheapest first, the price table, and the house model to default to. No key needed. */
+export interface PlanCatalog {
+  data: Plan[];
+  models: PlanModelPrice[];
+  default_model: string | null;
+}
+
+/** The body of `billing.switchPlan`: the plan's code and, optionally, why. No money moves here -- a paid plan is a 402 pointing at checkout. */
+export interface SwitchPlanParams {
+  plan: string;
+  reason?: string;
+}
+
+/** One row of `GET /api/plan/history`: the append-only billing trail, newest first. */
+export interface PlanEvent {
+  from_plan: string | null;
+  to_plan: string | null;
+  from_status: string | null;
+  to_status: string | null;
+  kind: string;
+  actor: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+/** `GET /api/plan/history`. */
+export interface PlanHistory {
+  data: PlanEvent[];
+}
+
+/** The body of `billing.checkout`: the plan to subscribe to, monthly unless `annual`. */
+export interface CheckoutParams {
+  plan: string;
+  annual?: boolean;
+}
+
+/** The answer to `checkout` and `portal`: the Stripe URL to redirect to. */
+export interface BillingUrl {
+  url: string;
+}
+
+/** How Stripe collects from the org: a card, or invoices on net terms. */
+export interface Collection {
+  collection_method: string;
+  days_until_due: number | null;
+}
+
+/** One step of the late-payment schedule. */
+export interface DunningStep {
+  stage: string;
+  at: string;
+}
+
+/** The open late-payment episode, as the banner and billing pane read it. Null in good standing. */
+export interface DunningState {
+  stage: string;
+  source: string;
+  first_overdue_at: string;
+  days_overdue: number;
+  outstanding_micros: number;
+  schedule: Record<string, unknown>;
+  next_step: DunningStep | null;
+  overage_stopped: boolean;
+  limited: { stops_overage: boolean; blocks_new_keys: boolean; blocks_upgrades: boolean };
+  auto_suspend: boolean;
+}
+
+/** One invoice, newest first as `GET /api/billing/invoices` lists them, with Stripe's hosted page and PDF beside it. */
+export interface Invoice {
+  id: string;
+  number: string | null;
+  status: string;
+  collection_method: string;
+  currency: string;
+  amount_due_micros: number;
+  amount_remaining_micros: number;
+  due_at: string | null;
+  paid_at: string | null;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
+  issued_at: string;
+}
+
+/** `GET /api/billing/invoices`. */
+export interface InvoiceList {
+  data: Invoice[];
+}
+
+/**
+ * `GET /api/billing/status`: what a billing page renders, in one call --
+ * the entitlements any member may read, whether the buy/manage buttons
+ * exist at all (`billing_enabled`), how the org pays, and the open
+ * late-payment episode when there is one. Deliberately readable by any
+ * member: a non-admin is told to ask an admin rather than shown a 403.
+ */
+export type BillingStatus = Entitlements & {
+  billing_enabled: boolean;
+  collection_method: string;
+  days_until_due: number | null;
+  dunning: DunningState | null;
+};
+
 // --- entitlements -------------------------------------------------------------
 
 /**

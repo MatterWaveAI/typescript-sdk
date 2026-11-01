@@ -121,9 +121,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trail beside these stays `client.audit`. **Admin scoping:** every route
   here gates on the membership row and refuses an API key; owner-only
   methods are marked in their doc comments.
-- `Org`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
+- `OrgProfile`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
   `SsoSettings`, `RecoveryCode`, `DnsChallenge`, `DomainVerification`,
   `OrgDomainRow`, `OrgIdpRow` and `AttachIdpParams` types.
+- `client.billing` — plans and billing (T-227): `plans()` (`GET /api/plans`,
+  the public catalog, cheapest first, with the price table and the house
+  model; no key needed), `switchPlan({ plan, reason? })` (`PUT /api/plan`,
+  the move to Free -- a paid code is the server's 402 pointing at
+  checkout), `planHistory()` (the append-only billing trail),
+  `checkout({ plan, annual? })` and `portal()` (the Stripe URLs to
+  redirect to), `status()` (entitlements, `billing_enabled`, how the org
+  pays, and the open late-payment episode -- readable by any member), and
+  `invoices()`. Switching, history, checkout, portal and invoices are
+  owner or admin by membership row and refuse an API key.
+- `Plan`, `PlanCatalog`, `PlanEvent`, `Invoice`, `BillingStatus`,
+  `DunningState` and `Collection` types.
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.

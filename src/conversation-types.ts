@@ -151,6 +151,13 @@ export const APP_OPERATIONS = {
   "org.idps": ["GET", "/api/org/idp"],
   "org.attachIdp": ["POST", "/api/org/idp"],
   "org.detachIdp": ["DELETE", "/api/org/idp/{provider}"],
+  "billing.plans": ["GET", "/api/plans"],
+  "billing.switchPlan": ["PUT", "/api/plan"],
+  "billing.planHistory": ["GET", "/api/plan/history"],
+  "billing.checkout": ["POST", "/api/billing/checkout"],
+  "billing.portal": ["POST", "/api/billing/portal"],
+  "billing.status": ["GET", "/api/billing/status"],
+  "billing.invoices": ["GET", "/api/billing/invoices"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {

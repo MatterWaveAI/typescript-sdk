@@ -43,6 +43,9 @@ import type {
   AuditListParams,
   AuditPage,
   Budget,
+  BillingStatus,
+  BillingUrl,
+  CheckoutParams,
   ClaimDomainParams,
   CloseOrgParams,
   ConversationTags,
@@ -71,6 +74,7 @@ import type {
   IdpList,
   ImportJob,
   ImportJobList,
+  InvoiceList,
   InviteList,
   InviteLinkList,
   InvitePreview,
@@ -95,6 +99,8 @@ import type {
   OrgUsage,
   PasswordChangeParams,
   PasswordChanged,
+  PlanCatalog,
+  PlanHistory,
   Preferences,
   ReadAllNotifications,
   ReadNotification,
@@ -113,6 +119,7 @@ import type {
   ShareList,
   SharedConversation,
   SharingPolicy,
+  SwitchPlanParams,
   SsoEnforced,
   SsoRelaxed,
   SsoSettings,
@@ -1323,6 +1330,60 @@ export class Org extends Resource {
   /** `DELETE /api/org/idp/{provider}`: detach a provider. Postgres first, so nobody is sent to a provider that is about to disappear. Owner or admin. */
   detachIdp(provider: string, options: RequestOptions = {}): Promise<void> {
     return this.none("DELETE", `/api/org/idp/${segment("provider", provider)}`, options);
+  }
+}
+
+// --- plans and billing --------------------------------------------------------
+
+/**
+ * Plans and billing: the public catalog, the move to Free, the billing
+ * trail, and the Stripe checkout, portal, status and invoices.
+ *
+ * **Admin scoping.** `plans()` is the pricing page's data and no key is
+ * needed; `status()` is deliberately readable by any member (a non-admin
+ * is told to ask an admin rather than shown a 403). The rest -- switching
+ * the plan, the history, checkout, the portal, the invoices -- is owner or
+ * admin by membership row: these routes refuse an API key outright, so a
+ * signed-in session answers them. No money moves through the SDK: a paid
+ * plan is granted by a confirmed Stripe subscription, and `switchPlan` is
+ * the move to Free (a paid code answers 402 pointing at checkout).
+ */
+export class Billing extends Resource {
+  /** `GET /api/plans`: the public catalog, cheapest first, with the price list and the house model. No key needed. */
+  plans(options: RequestOptions = {}): Promise<WithRequestId<PlanCatalog>> {
+    return this.callAnon("GET", "/api/plans", undefined, options);
+  }
+
+  /** `PUT /api/plan`: move the org to Free. A paid code is the server's 402 pointing at checkout; the move never deletes anything -- past the Free cap the org is read-only and `writes_blocked` says so. Owner or admin. */
+  switchPlan(params: SwitchPlanParams, options: RequestOptions = {}): Promise<WithRequestId<Entitlements>> {
+    if (!params.plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code");
+    return this.call("PUT", "/api/plan", present(params), options);
+  }
+
+  /** `GET /api/plan/history`: the append-only billing trail, newest first. Owner or admin. */
+  planHistory(options: RequestOptions = {}): Promise<WithRequestId<PlanHistory>> {
+    return this.call("GET", "/api/plan/history", undefined, options);
+  }
+
+  /** `POST /api/billing/checkout`: begin a subscription; the answer is the Stripe Checkout URL to redirect to. Owner or admin. */
+  checkout(params: CheckoutParams, options: RequestOptions = {}): Promise<WithRequestId<BillingUrl>> {
+    if (!params.plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code");
+    return this.call("POST", "/api/billing/checkout", { annual: false, ...present(params) }, options);
+  }
+
+  /** `POST /api/billing/portal`: a Stripe customer portal session -- card update, plan change, cancel. The URL, to redirect to. Owner or admin. */
+  portal(options: RequestOptions = {}): Promise<WithRequestId<BillingUrl>> {
+    return this.call("POST", "/api/billing/portal", undefined, options);
+  }
+
+  /** `GET /api/billing/status`: the entitlements, whether billing is on, how the org pays, and the open late-payment episode. Any member. */
+  status(options: RequestOptions = {}): Promise<WithRequestId<BillingStatus>> {
+    return this.call("GET", "/api/billing/status", undefined, options);
+  }
+
+  /** `GET /api/billing/invoices`: the org's invoices, newest first, with Stripe's hosted page and PDF links. Owner or admin. */
+  invoices(options: RequestOptions = {}): Promise<WithRequestId<InvoiceList>> {
+    return this.call("GET", "/api/billing/invoices", undefined, options);
   }
 }
 

@@ -40,7 +40,7 @@ export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
-export { Account, Admin, AdminAnnouncements, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
+export { Account, Admin, AdminAnnouncements, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
   AccountDeleted,
   AcceptTermsParams,
@@ -58,7 +58,11 @@ export type {
   AuditFilters,
   AuditListParams,
   AuditPage,
+  BillingStatus,
+  BillingUrl,
   Budget,
+  CheckoutParams,
+  Collection,
   ConversationTags,
   CreateAnnouncementParams,
   AttachIdpParams,
@@ -76,6 +80,8 @@ export type {
   DomainChallengeAnswer,
   DomainList,
   DomainVerification,
+  DunningState,
+  DunningStep,
   EmailChangeCancelled,
   EmailChangeState,
   EmailCodeSent,
@@ -89,6 +95,8 @@ export type {
   ImportJob,
   ImportJobList,
   ImportJobStatusKind,
+  Invoice,
+  InvoiceList,
   InviteList,
   InviteLinkList,
   InviteLinkRow,
@@ -123,6 +131,11 @@ export type {
   OrgUsage,
   PasswordChangeParams,
   PasswordChanged,
+  Plan,
+  PlanCatalog,
+  PlanEvent,
+  PlanHistory,
+  PlanModelPrice,
   Preferences,
   ReadAllNotifications,
   ReadNotification,
@@ -144,6 +157,7 @@ export type {
   ShareList,
   SharedConversation,
   SharingPolicy,
+  SwitchPlanParams,
   SsoEnforced,
   SsoRelaxed,
   SsoSettings,
