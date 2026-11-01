@@ -1,5 +1,6 @@
-# CI on every push and PR: the same gates the publish job runs before a tag
-# may ship. Publishing itself stays in publish-npm.yml, which runs on tags only.
+# CI on every push to develop or main and every PR into them: the same gates
+# the publish job runs before a tag may ship. Publishing itself stays in
+# publish-npm.yml, which runs on tags only.
 #
 # Run it by hand with `openapi_source` (a URL of the app's exported
 # docs/developers/openapi.json) to test this client against that API: the
@@ -8,7 +9,9 @@ name: ci
 
 on:
   push:
+    branches: [develop, main]
   pull_request:
+    branches: [develop, main]
   workflow_dispatch:
     inputs:
       openapi_source:
