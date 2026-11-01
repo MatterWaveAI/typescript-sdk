@@ -33,6 +33,7 @@ import { Auth, Conversations, Instructions, Messages } from "./conversations.js"
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
+import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
@@ -607,12 +608,20 @@ export class MatterWave {
   readonly imports: Imports;
   /** Dictation: the words in an audio clip. */
   readonly speech: Speech;
-  /** The org's billing as any member sees it: the plan, how it pays, and dunning when it is late. */
+  /** The org's billing: the status any member reads, and checkout, the portal, invoices and plan changes for an owner or admin. */
   readonly billing: Billing;
   /** The public price list, read with no credential. */
   readonly plans: Plans;
   /** The public policy page's counts, read with no credential. */
   readonly policy: Policy;
+  /** The organisation and its settings, domains and identity providers; a person's token. */
+  readonly org: OrgClient;
+  /** Who is in the org and in what role; a person's token. */
+  readonly members: Members;
+  /** Invitations by email, and accepting one; a person's token. */
+  readonly invites: Invites;
+  /** Shareable join links, and joining through one; a person's token. */
+  readonly inviteLinks: InviteLinks;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -675,6 +684,10 @@ export class MatterWave {
     this.billing = new Billing(this);
     this.plans = new Plans(this);
     this.policy = new Policy(this);
+    this.org = new OrgClient(this);
+    this.members = new Members(this);
+    this.invites = new Invites(this);
+    this.inviteLinks = new InviteLinks(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

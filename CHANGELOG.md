@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Organisation administration, for a person's token: `org` (`get`,
+  `rename`, `close`, the model allow-list, sharing and the org's share
+  links, SSO with its recovery code, two-factor, and `org.domains` and
+  `org.idps`), `members` (`list`, `setRole`, `transferOwnership`,
+  `remove`), `invites` (`list`, `create`, `resend`, `revoke`, `accept`, and
+  the anonymous `lookup`), `inviteLinks` (`list`, `create`, `revoke`,
+  `join`, and the anonymous `lookup`), `billing.checkout` / `portal` /
+  `invoices` / `changePlan` / `planHistory`, and `auth.device.lookup` /
+  `approve` / `deny`. One-time secrets (a link's token and url, an SSO
+  recovery code) say so in their doc comments. Every person-only method's
+  doc comment, its class's or its module's says it needs a person's token,
+  which `tests/person-only.test.ts` checks.
 - The account and data routes a key reaches: `account` (`update`,
   `acceptTerms`, `enforcement`), `preferences` (`get`, `update`, which reads
   the object, lays the changes over it and writes it back, since the route

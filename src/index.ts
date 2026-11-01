@@ -19,9 +19,11 @@
  * `client.preferences`, `client.sessions`, `client.exports`,
  * `client.imports`, `client.speech` and `client.billing` the caller's own
  * account and data, `client.plans` and `client.policy` the public figures,
- * `client.admin` is the operator surface (the platform `admin` role, not an
- * API key's), and `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list
- * tools, call one, send a message).
+ * `client.org`, `client.members`, `client.invites` and `client.inviteLinks`
+ * administer the organisation with a person's token, `client.admin` is the
+ * operator surface (the platform `admin` role, not an API key's), and
+ * `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list tools, call one,
+ * send a message).
  *
  * @module @matterwave/sdk
  */
@@ -146,6 +148,52 @@ export type {
   UpdatedName,
   WaitOptions,
 } from "./account-types.js";
+export { Domains, IdentityProviders, InviteLinks, Invites, Members, OrgClient } from "./org.js";
+export type {
+  ApproveDeviceParams,
+  AttachIdpParams,
+  BillingLink,
+  ChangePlanParams,
+  CheckoutParams,
+  CloseOrgParams,
+  ClosedOrg,
+  CreateInviteLinkParams,
+  CreateInviteParams,
+  DeviceDecision,
+  DeviceLookup,
+  DnsRecord,
+  Domain,
+  DomainChallenge,
+  DomainList,
+  DomainVerification,
+  IdentityProvider,
+  IdentityProviderList,
+  Invite,
+  InviteLink,
+  InviteLinkList,
+  InviteList,
+  InviteLookup,
+  Invoice,
+  InvoiceList,
+  LinkLookup,
+  Member,
+  MemberList,
+  MfaSettings,
+  MintedRecoveryCode,
+  ModelPolicy,
+  ModelPolicyEntry,
+  Org,
+  OrgRole,
+  OrgShare,
+  OrgShareList,
+  PlanChange,
+  PlanHistory,
+  RecoveryCode,
+  RevokedOrgShare,
+  Seats,
+  SharingPolicy,
+  SsoSettings,
+} from "./org-types.js";
 export type {
   AppModel,
   AppModelList,

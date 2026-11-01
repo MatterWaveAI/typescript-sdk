@@ -9,7 +9,9 @@
  *
  * Every route here takes an API key, acting as its owner, or a person's
  * token: exports need a key with `chat:read`, imports one with `chat:write`.
- * `plans.list` and `policy.stats` are public and send no credential.
+ * `plans.list` and `policy.stats` are public and send no credential. The
+ * exception is billing's administration (`checkout`, `portal`, `invoices`,
+ * `changePlan`, `planHistory`), which needs a person's token.
  */
 
 import type {
@@ -33,6 +35,8 @@ import type {
   UpdatedName,
   WaitOptions,
 } from "./account-types.js";
+import type { Entitlements } from "./native-types.js";
+import type { BillingLink, ChangePlanParams, CheckoutParams, InvoiceList, PlanHistory } from "./org-types.js";
 import { MatterWaveConfigError, pause } from "./client.js";
 import type { RequestOptions } from "./client.js";
 import { segment } from "./conversations.js";
@@ -328,7 +332,12 @@ export class Speech extends Resource {
 
 // --- billing, plans and policy -------------------------------------------------
 
-/** The org's billing as any member sees it. */
+/**
+ * The org's billing. `status` is any member's read, with a key or a
+ * person's token; the rest is an owner's or admin's and needs a person's
+ * token -- an API key is refused 403 "Membership is managed by a person,
+ * not an API key.".
+ */
 export class Billing extends Resource {
   /**
    * `GET /api/billing/status`: the plan and its limits, whether billing is
@@ -336,6 +345,44 @@ export class Billing extends Resource {
    */
   status(options: RequestOptions = {}): Promise<WithRequestId<BillingStatus>> {
     return this.call("GET", "/api/billing/status", undefined, options);
+  }
+
+  /**
+   * `POST /api/billing/checkout`: a Stripe Checkout page for `plan`; the
+   * plan changes once Stripe confirms the payment. `ConflictError` while an
+   * invoice is overdue.
+   */
+  checkout(plan: string, params: CheckoutParams = {}, options: RequestOptions = {}): Promise<WithRequestId<BillingLink>> {
+    if (!plan) throw new MatterWaveConfigError("plan must be a plan code, such as `pro`");
+    return this.call("POST", "/api/billing/checkout", { plan, annual: params.annual ?? false }, options);
+  }
+
+  /** `POST /api/billing/portal`: the Stripe customer portal, where the card and invoices are managed. */
+  portal(options: RequestOptions = {}): Promise<WithRequestId<BillingLink>> {
+    return this.call("POST", "/api/billing/portal", undefined, options);
+  }
+
+  /** `GET /api/billing/invoices`: the latest 24, newest first. */
+  invoices(options: RequestOptions = {}): Promise<WithRequestId<InvoiceList>> {
+    return this.call("GET", "/api/billing/invoices", undefined, options);
+  }
+
+  /**
+   * `PUT /api/plan`: move to `plan` directly -- in practice to `free`; a
+   * paid plan starts with `checkout` and the server answers 402 saying so.
+   * Nothing is deleted on a downgrade, but writes past the new limits stop
+   * (`writes_blocked`).
+   */
+  changePlan(plan: string, params: ChangePlanParams = {}, options: RequestOptions = {}): Promise<WithRequestId<Entitlements>> {
+    if (!plan) throw new MatterWaveConfigError("plan must be a plan code, such as `free`");
+    const body: Record<string, unknown> = { plan };
+    if (params.reason != null) body.reason = params.reason;
+    return this.call("PUT", "/api/plan", body, options);
+  }
+
+  /** `GET /api/plan/history`: the latest 50 plan and status changes. */
+  planHistory(options: RequestOptions = {}): Promise<WithRequestId<PlanHistory>> {
+    return this.call("GET", "/api/plan/history", undefined, options);
   }
 }
 

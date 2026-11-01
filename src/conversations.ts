@@ -45,6 +45,7 @@ import type {
 import { FEEDBACK_REASONS, REPORT_KINDS } from "./conversation-types.js";
 import { APIConnectionError, APIError, APITimeoutError, DeviceAuthError, MatterWaveError } from "./errors.js";
 import { frameFromEvent, isTerminal, type ConversationFrame } from "./frames.js";
+import type { ApproveDeviceParams, DeviceDecision, DeviceLookup } from "./org-types.js";
 import { sseEvents, type SSEEvent } from "./sse.js";
 import type { WithRequestId } from "./types.js";
 
@@ -533,6 +534,10 @@ export interface DeviceLoginOptions {
  * them a code, they approve it in any browser, and the poll returns an API
  * key that acts as them. Nothing is stored here; keeping the token is the
  * caller's job.
+ *
+ * `lookup`, `approve` and `deny` are the other side, deciding a code a
+ * device shows: they need a signed-in person's token (`accessToken`), and
+ * an API key is refused.
  */
 export class DeviceAuth {
   constructor(private readonly client: MatterWave) {}
@@ -599,6 +604,41 @@ export class DeviceAuth {
       }
     }
   }
+
+  /**
+   * `POST /api/auth/device/lookup`: which client is asking with the code a
+   * device shows, before the person decides. An API key is refused here: a
+   * key that could mint keys would outlive its own revocation.
+   */
+  lookup(userCode: string, options: RequestOptions = {}): Promise<WithRequestId<DeviceLookup>> {
+    return this.client.json<DeviceLookup>(decision("/api/auth/device/lookup", userCode, {}), options);
+  }
+
+  /**
+   * `POST /api/auth/device/approve`: let the device sign in as the caller;
+   * it gets an API key (named after `name`, or the client) on its next
+   * poll. `ConflictError` once the code was decided.
+   */
+  approve(
+    userCode: string,
+    params: ApproveDeviceParams = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<DeviceDecision>> {
+    return this.client.json<DeviceDecision>(decision("/api/auth/device/approve", userCode, params), options);
+  }
+
+  /** `POST /api/auth/device/deny`: refuse the device; its poll ends in `access_denied`. */
+  deny(userCode: string, options: RequestOptions = {}): Promise<WithRequestId<DeviceDecision>> {
+    return this.client.json<DeviceDecision>(decision("/api/auth/device/deny", userCode, {}), options);
+  }
+}
+
+/** A person's decision on the code a device shows, sent with their credential. */
+function decision(path: string, userCode: string, params: ApproveDeviceParams): Prepared {
+  if (!userCode || userCode.length > 32) throw new MatterWaveConfigError("userCode must be the code the device shows");
+  const body: Record<string, unknown> = { user_code: userCode };
+  if (params.name != null) body.name = params.name;
+  return { method: "POST", path, body, keyed: true, stream: false };
 }
 
 /**

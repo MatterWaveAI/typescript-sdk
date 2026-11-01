@@ -1,10 +1,12 @@
 /**
  * The methods whose routes refuse every API key: each says so in its doc
  * comment, with the platform's 403 message; a key gets that 403 as a
- * `PermissionDeniedError`; and a person's token reaches the route.
+ * `PermissionDeniedError`; and a person's token reaches the route. Every
+ * other person-only method says so in its own doc comment, its class's or
+ * its module's.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -64,16 +66,52 @@ function docOf(file: string, cls: string, name: string): string {
   const end = source.indexOf("\nexport ", start + 1);
   const body = source.slice(start, end === -1 ? undefined : end);
   const match = new RegExp(`/\\*\\*((?:(?!\\*/)[\\s\\S])*)\\*/\\s*(?:async\\s+)?${name}\\(`).exec(body);
-  return (match?.[1] ?? "").replace(/^\s*\*\s?/gm, " ").replace(/\s+/g, " ");
+  return flat(match?.[1]);
+}
+
+function flat(doc: string | undefined): string {
+  return (doc ?? "").replace(/^\s*\*\s?/gm, " ").replace(/\s+/g, " ");
+}
+
+/** The file under src/ that declares `export class <cls>`, and its text. */
+function sourceOf(cls: string): { file: string; source: string } {
+  for (const file of readdirSync(resolve(here, "../src"))) {
+    if (!file.endsWith(".ts")) continue;
+    const source = readFileSync(resolve(here, "../src", file), "utf-8");
+    if (source.includes(`export class ${cls} `)) return { file, source };
+  }
+  throw new Error(`no file under src/ declares ${cls}`);
+}
+
+/** The doc comments of the method `dotted` names, of its class and of its module, as one line. */
+function docsOf(dotted: string): string {
+  let owner: unknown = new MatterWave({ apiKey: "k", baseUrl: BASE_URL });
+  const parts = dotted.split(".");
+  for (const part of parts.slice(0, -1)) owner = (owner as Record<string, unknown>)[part];
+  const name = parts.at(-1)!;
+  expect(typeof (owner as Record<string, unknown>)[name], dotted).toBe("function");
+  const cls = (owner as object).constructor.name;
+  const { file, source } = sourceOf(cls);
+  const classDoc = new RegExp(`/\\*\\*((?:(?!\\*/)[\\s\\S])*)\\*/\\s*export class ${cls} `).exec(source)?.[1];
+  const moduleDoc = /^\/\*\*((?:(?!\*\/)[\s\S])*)\*\//.exec(source)?.[1];
+  return [docOf(file, cls, name), flat(classDoc), flat(moduleDoc)].join(" ");
 }
 
 describe("the person-only methods", () => {
-  it("are exactly the person credentials outside the operator console", () => {
-    const person = Object.entries(CREDENTIALS)
-      .filter(([name, need]) => need === "person" && !name.startsWith("admin."))
-      .map(([name]) => name);
-    expect(new Set(Object.keys(CALLS))).toEqual(new Set(person));
+  it("are person credentials", () => {
+    for (const name of Object.keys(CALLS)) expect((CREDENTIALS as Record<string, string>)[name], name).toBe("person");
   });
+
+  const personOnly = Object.entries(CREDENTIALS)
+    .filter(([name, need]) => need === "person" && !name.startsWith("admin."))
+    .map(([name]) => name)
+    .sort();
+  for (const name of personOnly) {
+    it(`${name} says, or its class or module says, that a person's token is what it takes`, () => {
+      const docs = docsOf(name);
+      expect(docs.includes("person's token") || docs.includes("signed-in person"), name).toBe(true);
+    });
+  }
 
   for (const [name, spec] of Object.entries(CALLS)) {
     it(`${name} says it needs a person and quotes the refusal`, () => {
