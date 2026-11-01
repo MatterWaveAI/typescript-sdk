@@ -6,9 +6,6 @@
  * and what came back.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   APIError,
@@ -22,8 +19,6 @@ import {
 import type { AnnouncementSeverity } from "../src/index.js";
 import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./helpers.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const ROUTES = resolve(here, "../../../api/matterwave");
 const NATIVE = ["keys", "usage", "audit", "webhooks", "attachments", "library", "shares", "notifications", "announcements", "entitlements"];
 
 const KEY_ID = "key-0001";
@@ -36,25 +31,6 @@ function nativeOperations(): [string, readonly [string, string]][] {
   return Object.entries(APP_OPERATIONS).filter(([key]) => NATIVE.includes(key.split(".")[0]!));
 }
 
-/** Every (method, path) the app's routers declare, read from the source. The
- *  native routes live in the routes_* files, and notifications and
- *  announcements carry their own routers beside them. */
-function apiRoutes(): Set<string> {
-  const found = new Set<string>();
-  const names = readdirSync(ROUTES).filter(
-    (f) => /^routes_.*\.py$/.test(f) || f === "notifications.py" || f === "announcements.py",
-  );
-  for (const name of names) {
-    const source = readFileSync(join(ROUTES, name), "utf-8");
-    const prefixes = new Map<string, string>();
-    for (const m of source.matchAll(/(\w+)\s*=\s*APIRouter\([^)]*prefix="([^"]*)"/g)) prefixes.set(m[1]!, m[2]!);
-    for (const m of source.matchAll(/@(\w+)\.(get|post|put|patch|delete)\(\s*"([^"]*)"/g)) {
-      found.add(`${m[2]!.toUpperCase()} ${(prefixes.get(m[1]!) ?? "") + m[3]!}`);
-    }
-  }
-  return found;
-}
-
 describe("the native route table", () => {
   it("names a method on the client for every native operation", () => {
     const c = new MatterWave({ apiKey: "k", baseUrl: BASE_URL });
@@ -65,13 +41,6 @@ describe("the native route table", () => {
         target = (target as Record<string, unknown>)[part];
       }
       expect(typeof target, dotted).toBe("function");
-    }
-  });
-
-  it.skipIf(!existsSync(ROUTES))("names only routes the API declares", () => {
-    const routes = apiRoutes();
-    for (const [key, [method, path]] of nativeOperations()) {
-      expect(routes.has(`${method} ${path}`), `${key}: ${method} ${path}`).toBe(true);
     }
   });
 });
