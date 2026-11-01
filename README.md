@@ -2,8 +2,9 @@
 
 The TypeScript client for the MatterWave API: the OpenAI-compatible `/v1`
 surface, typed, with a streaming async iterator, retries that honour
-`Retry-After`, and the server's `X-Request-Id` on every error. `fetch`-based,
-so it runs in Node 18+ and in browsers; ESM and CommonJS builds, one `.d.ts`.
+`Retry-After`, and the server's `X-Request-Id` on every error. `fetch`-based
+with no dependencies, so it runs in Node 20+, Bun, Deno and browsers -- CI runs
+it in each; ESM and CommonJS builds, each with its own declarations.
 
 ```
 npm install @matterwave/sdk
@@ -21,8 +22,11 @@ const client = new MatterWave({
 ```
 
 Both options fall back to `MATTERWAVE_API_KEY` and `MATTERWAVE_BASE_URL` when a
-`process.env` exists (Node, or a bundler that provides one); in a browser pass
-them. The base URL is the origin the app is served from; the OpenAI-style form
+`process.env` exists (Node, Bun, Deno with `--allow-env`, or a bundler that
+provides one); in a browser pass them. A key in a page's JavaScript is readable
+by anyone who loads the page, so in a browser the client refuses one unless
+`dangerouslyAllowBrowser: true` says that exposure is understood (a key scoped
+and rate-limited for exactly that page); call the API from a server otherwise. The base URL is the origin the app is served from; the OpenAI-style form
 ending in `/v1` is accepted too. Keys are created under Settings > API keys in
 the app and shown once.
 

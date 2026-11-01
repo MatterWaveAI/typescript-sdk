@@ -1,6 +1,6 @@
 /**
- * The client. `fetch`-based, so it runs in Node 18+ and in browsers alike;
- * nothing here imports a Node module.
+ * The client. `fetch`-based, so it runs in Node 20+, Bun, Deno and browsers
+ * alike; nothing here imports a Node module or any other package.
  *
  *     const client = new MatterWave({ apiKey: "mw_...", baseUrl: "https://your-matterwave.example" });
  *     const completion = await client.chat.completions.create({
@@ -32,7 +32,6 @@ import {
   errorClassFor,
 } from "./errors.js";
 import type { RateLimit } from "./errors.js";
-import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
@@ -145,6 +144,13 @@ export interface ClientOptions {
   defaultHeaders?: Record<string, string>;
   /** A replacement `fetch`: a mock in tests, a wrapped one in an app. */
   fetch?: Fetch;
+  /**
+   * Allow an API key in a browser. A key in a page's JavaScript is readable
+   * by anyone who loads the page, so the client refuses one there unless
+   * this says the exposure is understood -- a key scoped and rate-limited
+   * for exactly that page, say. Without a key the client runs anywhere.
+   */
+  dangerouslyAllowBrowser?: boolean;
   /** The request about to go out, for logging: method and path, once per attempt (a retry fires it again). A hook that throws fails the call. */
   onRequest?: (request: { method: string; path: string }) => void;
   /** The response that came back, success or refusal, once per attempt. A hook that throws fails the call. */
@@ -238,13 +244,31 @@ export function neverSent(error: unknown): boolean {
   return false;
 }
 
-function envValue(name: string): string | null {
-  // `process` exists in Node and in bundlers that polyfill it; in a browser
-  // without either there is no environment to read, and that is fine.
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    ?.env;
-  const value = env?.[name]?.trim();
-  return value ? value : null;
+/** @internal A setting from the environment, or null where there is none to read. */
+export function envValue(name: string): string | null {
+  // `process` exists in Node, Bun and Deno and in bundlers that polyfill it;
+  // in a browser there is no environment to read, and Deno without
+  // `--allow-env` throws on the read. Either way the setting is unset.
+  try {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+      ?.env;
+    const value = env?.[name]?.trim();
+    return value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether this is a page or a worker in a browser, where a key would be in the page's reach. */
+export function inBrowser(): boolean {
+  const scope = globalThis as { window?: { document?: unknown }; WorkerGlobalScope?: unknown; importScripts?: unknown };
+  if (typeof scope.window?.document !== "undefined") return true;
+  return typeof scope.WorkerGlobalScope !== "undefined" && typeof scope.importScripts === "function";
+}
+
+/** What `parse` validates with: anything whose `parse` returns the value or throws, as a zod schema does. */
+export interface Schema<T> {
+  parse(data: unknown): T;
 }
 
 export function resolveBaseUrl(baseUrl: string | null | undefined): string {
@@ -532,8 +556,10 @@ export class Completions {
 
   /**
    * `create` plus validation: the answer's text is read as JSON and parsed
-   * by the caller's zod `schema`, whose value comes back -- the `.parse({
-   * schema })` the peers ship.
+   * by the caller's `schema` -- a zod schema, or anything with a `parse`
+   * that returns the value or throws -- whose value comes back: the
+   * `.parse({ schema })` the peers ship. This package does not depend on
+   * zod; the schema brings its own.
    *
    * The model is asked for a JSON object (`response_format` of
    * `json_object`) unless the caller passes their own in `params`; send
@@ -542,13 +568,13 @@ export class Completions {
    * `create` unchanged.
    *
    * `ParseError` when the answer is empty or is not JSON; a schema failure
-   * throws the schema's own `ZodError`, which says which field the model
-   * got wrong.
+   * throws the schema's own error (zod's `ZodError`), which says which
+   * field the model got wrong.
    */
-  async parse<S extends z.ZodType>(
-    params: ChatCompletionCreateParamsNonStreaming & { schema: S },
+  async parse<T>(
+    params: ChatCompletionCreateParamsNonStreaming & { schema: Schema<T> },
     options: RequestOptions = {},
-  ): Promise<z.infer<S>> {
+  ): Promise<T> {
     const { schema, ...request } = params;
     if (!Array.isArray(request.messages) || request.messages.length === 0) {
       throw new MatterWaveConfigError("messages must contain at least one message");
@@ -573,7 +599,7 @@ export class Completions {
         { body: content },
       );
     }
-    return schema.parse(data) as z.infer<S>;
+    return schema.parse(data);
   }
 }
 
@@ -682,9 +708,17 @@ export class MatterWave {
   private readonly fetchImpl: Fetch;
   private readonly onRequest: ((request: { method: string; path: string }) => void) | null;
   private readonly onResponse: ((response: RawResponse) => void) | null;
+  private readonly allowBrowser: boolean;
 
   constructor(options: ClientOptions = {}) {
     this.apiKey = options.apiKey ?? envValue(API_KEY_ENV);
+    this.allowBrowser = options.dangerouslyAllowBrowser === true;
+    if (this.apiKey !== null && inBrowser() && !this.allowBrowser) {
+      throw new MatterWaveConfigError(
+        "An API key in a browser is readable by anyone who loads the page. Call the API from a " +
+          "server, or pass dangerouslyAllowBrowser: true with a key scoped for this page.",
+      );
+    }
     this.baseUrl = resolveBaseUrl(options.baseUrl);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -743,6 +777,7 @@ export class MatterWave {
       maxRetryWaitMs: overrides.maxRetryWaitMs ?? this.maxRetryWaitMs,
       defaultHeaders: { ...this.defaultHeaders, ...(overrides.defaultHeaders ?? {}) },
       fetch: this.fetchImpl,
+      dangerouslyAllowBrowser: this.allowBrowser,
       onRequest: this.onRequest ?? undefined,
       onResponse: this.onResponse ?? undefined,
     });

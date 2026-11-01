@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.5
@@ -36,6 +32,9 @@ importers:
       vitest:
         specifier: ^5.0.1
         version: 5.0.3(@types/node@22.20.5)(vite@8.3.2(@types/node@22.20.5)(esbuild@0.27.7))
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
 packages:
 
