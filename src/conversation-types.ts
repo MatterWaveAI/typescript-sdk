@@ -110,6 +110,12 @@ export const APP_OPERATIONS = {
   "account.verifyEmailChange": ["POST", "/api/me/email/verify"],
   "account.resendEmailChange": ["POST", "/api/me/email/resend"],
   "account.cancelEmailChange": ["POST", "/api/me/email/cancel"],
+  "exports.start": ["POST", "/api/me/export"],
+  "exports.get": ["GET", "/api/me/export/{export_id}"],
+  "exports.download": ["GET", "/api/me/export/{export_id}/download"],
+  "imports.start": ["POST", "/api/me/imports"],
+  "imports.list": ["GET", "/api/me/imports"],
+  "imports.get": ["GET", "/api/me/imports/{import_id}"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {

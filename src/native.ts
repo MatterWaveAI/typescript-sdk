@@ -55,7 +55,11 @@ import type {
   EmailCodeSent,
   EmailChanged,
   Entitlements,
+  ExportJob,
+  ExportJobStatus,
   Folder,
+  ImportJob,
+  ImportJobList,
   Library,
   LibrarySearchParams,
   MemberBudget,
@@ -87,6 +91,7 @@ import type {
   UpdatePreferencesParams,
   UpdateWebhookParams,
   UploadAttachmentParams,
+  UploadImportParams,
   UsageBalance,
   UsagePeriodParams,
   VerifyEmailChangeParams,
@@ -709,8 +714,7 @@ export class Admin {
 
 // --- account ------------------------------------------------------------------
 
-function checkNewPassword(newPassword: string): void {
-  if (newPassword.length < PASSWORD_MIN_LENGTH) {
+function checkNewPassword(newPassword: string): void {  if (newPassword.length < PASSWORD_MIN_LENGTH) {
     throw new MatterWaveConfigError(
       `Use at least ${PASSWORD_MIN_LENGTH} characters: length is what makes a password hard to guess, not symbols.`,
     );
@@ -860,6 +864,86 @@ export class Account extends Resource {
       throw new MatterWaveConfigError(`Confirmation phrase must be "${DELETE_ACCOUNT_PHRASE}".`);
     }
     return this.call("DELETE", "/api/me", params, options);
+  }
+}
+
+// --- exports / imports --------------------------------------------------------
+
+function exportPath(exportId: string, suffix = ""): string {
+  return `/api/me/export/${segment("exportId", exportId)}${suffix}`;
+}
+
+/**
+ * The account export as a job, not a request. `GET /api/me/export` builds
+ * the whole document inside one request; these are the routes the Data
+ * pane uses instead: start one, poll it, download it. One pending export
+ * per person (409 while one is building); a finished export is
+ * downloadable for a week.
+ */
+export class Exports extends Resource {
+  /** `POST /api/me/export` (202): queue the build. The answer is the row, `pending`. */
+  start(options: RequestOptions = {}): Promise<WithRequestId<ExportJob>> {
+    return this.call("POST", "/api/me/export", undefined, options);
+  }
+
+  /**
+   * `GET /api/me/export/{id}`: where the job stands, with a fresh signed
+   * `download_url` once it is ready. Another person's export is the same
+   * 404 as none.
+   */
+  get(exportId: string, options: RequestOptions = {}): Promise<WithRequestId<ExportJobStatus>> {
+    return this.call("GET", exportPath(exportId), undefined, options);
+  }
+
+  /**
+   * The export's bytes, from `get`'s `download_url` (or the URL itself).
+   * The link is signed and dies with the export's `expires_at`: `get`
+   * mints a fresh one.
+   */
+  download(
+    job: Pick<ExportJobStatus, "download_url"> | string,
+    options: RequestOptions = {},
+  ): Promise<ArrayBuffer> {
+    const url = typeof job === "string" ? job : job.download_url;
+    const match = /^\/api\/me\/export\/([^/?#]+)\/download(\?[^#]*)?$/.exec(url ?? "");
+    if (!match) throw new MatterWaveConfigError(`not an export download URL: ${url}`);
+    const path = exportPath(decodeURIComponent(match[1]!), `/download${match[2] ?? ""}`);
+    return this.client.bytes(
+      { method: "GET", path, body: undefined, keyed: true, stream: false, headers: { Accept: "*/*" } },
+      options,
+    );
+  }
+}
+
+/**
+ * Importing a ChatGPT or Claude export: start one from the file, then poll
+ * the same row the Settings -> Data pane reads. One import runs at a time
+ * per account (409 while one does), and the import creates conversations,
+ * so an org over its plan's cap is refused until there is room.
+ */
+export class Imports extends Resource {
+  /**
+   * `POST /api/me/imports` (202): take the file (at most 100 MiB), check
+   * it is an export this reads, and queue the work. The answer is the row:
+   * what was found (`source`, `conversations_total`) and that it is
+   * pending. Nothing is written to the caller's conversations here.
+   */
+  start(params: UploadImportParams, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
+    if (!params.filename) throw new MatterWaveConfigError("filename must be non-empty");
+    const blob = params.file instanceof Blob ? params.file : new Blob([params.file as BlobPart]);
+    const form = new FormData();
+    form.append("file", blob, params.filename);
+    return this.call("POST", "/api/me/imports", form, options);
+  }
+
+  /** `GET /api/me/imports`: the caller's recent imports, newest first. */
+  list(options: RequestOptions = {}): Promise<WithRequestId<ImportJobList>> {
+    return this.call("GET", "/api/me/imports", undefined, options);
+  }
+
+  /** `GET /api/me/imports/{id}`: where the import stands. Another person's import is the same 404 as none. */
+  get(importId: string, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
+    return this.call("GET", `/api/me/imports/${segment("importId", importId)}`, undefined, options);
   }
 }
 

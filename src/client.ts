@@ -31,7 +31,7 @@ import type { RateLimit } from "./errors.js";
 import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
-import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { Account } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
@@ -575,6 +575,10 @@ export class MatterWave {
   readonly mcp: Mcp;
   /** The caller's own account: rename, terms, password, email, sessions, preferences, deletion. */
   readonly account: Account;
+  /** The account export as a job: start, poll, download. */
+  readonly exports: Exports;
+  /** ChatGPT/Claude history imports: start from a file, then poll. */
+  readonly imports: Imports;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -618,6 +622,8 @@ export class MatterWave {
     this.admin = new Admin(this);
     this.mcp = new Mcp(this);
     this.account = new Account(this);
+    this.exports = new Exports(this);
+    this.imports = new Imports(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

@@ -40,7 +40,7 @@ export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
-export { Account, Admin, AdminAnnouncements, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+export { Account, Admin, AdminAnnouncements, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 export type {
   AccountDeleted,
   AcceptTermsParams,
@@ -73,8 +73,13 @@ export type {
   EmailChanged,
   EmailPreferences,
   Entitlements,
+  ExportJob,
+  ExportJobStatus,
+  ExportJobStatusKind,
   Folder,
-  KeySettings,
+  ImportJob,
+  ImportJobList,
+  ImportJobStatusKind,
   Library,
   LibrarySearchParams,
   MemberBudget,
@@ -112,6 +117,7 @@ export type {
   UpdatePreferencesParams,
   UpdateWebhookParams,
   UploadAttachmentParams,
+  UploadImportParams,
   UsageBalance,
   UsagePeriodParams,
   VerifyEmailChangeParams,

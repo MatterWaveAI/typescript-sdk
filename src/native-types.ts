@@ -728,6 +728,73 @@ export interface DeleteAccountParams {
   confirm: string;
 }
 
+// --- export + import jobs -------------------------------------------------------
+
+/** Where an export job stands: `pending`, then `ready` (downloadable until `expires_at`), `failed`, or `expired` (the blob is gone; the row stays as the record). */
+export type ExportJobStatusKind = "pending" | "ready" | "failed" | "expired";
+
+/**
+ * One account export job, as `POST /api/me/export` (202) answers and
+ * `GET /api/me/export/{id}` returns it. Never the blob key.
+ */
+export interface ExportJob {
+  id: string;
+  status: ExportJobStatusKind | (string & {});
+  size_bytes: number | null;
+  created_at: string;
+  completed_at: string | null;
+  /** When the download stops working and the blob is swept. */
+  expires_at: string | null;
+}
+
+/** `GET /api/me/export/{id}`: the job, plus a fresh signed `download_url` once it is ready (null before that). */
+export interface ExportJobStatus extends ExportJob {
+  download_url: string | null;
+}
+
+/** Where an import stands: `pending`, `running`, `done`, or `failed` (with `error` beside it). */
+export type ImportJobStatusKind = "pending" | "running" | "done" | "failed";
+
+/**
+ * One ChatGPT/Claude history import, as `POST /api/me/imports` (202)
+ * answers and the two GETs report it. The counts move as the worker runs:
+ * `conversations_done` toward `conversations_total`, `messages_created`
+ * beside it, and the rows it had to leave behind counted in
+ * `conversations_skipped` and `attachments_skipped`.
+ */
+export interface ImportJob {
+  id: string;
+  status: ImportJobStatusKind | (string & {});
+  /** `chatgpt` or `claude` -- what the export was parsed as. */
+  source: string;
+  filename: string;
+  size_bytes: number;
+  conversations_total: number;
+  conversations_done: number;
+  conversations_created: number;
+  conversations_existing: number;
+  conversations_skipped: number;
+  messages_created: number;
+  attachments_skipped: number;
+  branches_dropped: number;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/** `GET /api/me/imports`: the caller's recent imports, newest first. */
+export interface ImportJobList {
+  data: ImportJob[];
+}
+
+/** The body of `imports.start`: one export file, up to 100 MiB. */
+export interface UploadImportParams {
+  /** The file: a `Blob` (a `File` is one), or bytes. */
+  file: Blob | ArrayBuffer | Uint8Array;
+  filename: string;
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

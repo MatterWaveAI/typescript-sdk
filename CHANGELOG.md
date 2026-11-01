@@ -77,6 +77,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Preferences.billing_receipts` is typed `true` only -- receipts are
   transactional mail the server refuses to switch off, and now so is the
   type.
+- `client.exports` and `client.imports` — the account export and history
+  import as jobs (T-208): `exports.start()` (`POST /api/me/export`, 202),
+  `exports.get(id)` with a fresh signed `download_url` once ready,
+  `exports.download(job | url)` for the bytes behind the signed link, and
+  `imports.start({ file, filename })` (multipart, at most 100 MiB),
+  `imports.list()`, `imports.get(id)`. One job runs at a time per account
+  (409 while one does); `ExportJob`, `ExportJobStatus`, `ImportJob` and
+  `ImportJobList` spell the rows, progress counts and errors as the worker
+  moves them.
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.
