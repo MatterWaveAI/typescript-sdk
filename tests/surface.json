@@ -257,6 +257,7 @@
   "errors.AuthenticationError",
   "errors.BadRequestError",
   "errors.ConflictError",
+  "errors.ConnectorConversationError",
   "errors.DeviceAuthError",
   "errors.MatterWaveConfigError",
   "errors.MatterWaveError",
