@@ -437,7 +437,10 @@ export class Conversations {
   /**
    * Append a user message and stream the reply. The server builds the prompt
    * from the stored history and instructions; `parent_id` sends onto that
-   * branch instead of the current leaf.
+   * branch instead of the current leaf. `ConnectorConversationError` for a
+   * conversation a connector opened (`source` set): it is answered in its
+   * thread alone, and so are `edit` and `regenerate`; fork it to continue
+   * here.
    */
   send(conversationId: string, params: SendMessageParams, options: RequestOptions = {}): Promise<ConversationStream> {
     const body = turnBody({ ...params, attachment_ids: params.attachment_ids?.length ? params.attachment_ids : undefined });

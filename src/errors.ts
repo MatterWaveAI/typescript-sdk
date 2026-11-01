@@ -8,6 +8,11 @@
  * call the server logged.
  */
 
+import type { ConversationSource } from "./conversation-types.js";
+
+/** The `code` the app puts beside `detail` on the 409 for a turn in a conversation a connector opened. */
+export const CONNECTOR_CONVERSATION_CODE = "connector_conversation";
+
 export class MatterWaveError extends Error {
   /** The underlying failure, when there is one: the fetch rejection behind a connection error. */
   readonly cause?: unknown;
@@ -98,6 +103,21 @@ export class PermissionDeniedError extends APIError {}
 export class NotFoundError extends APIError {}
 /** 409: valid, but the state does not allow it, such as a compaction with nothing to fold yet. */
 export class ConflictError extends APIError {}
+/**
+ * 409 with `code` `connector_conversation`: a send, edit or regenerate in a
+ * conversation a connector opened (one started from Slack, say), which is
+ * answered in its own thread alone. `source` says which connector and
+ * channel, with a link to the thread when the connector has one. A fork of
+ * the conversation is ordinary and takes messages.
+ */
+export class ConnectorConversationError extends ConflictError {
+  readonly source: ConversationSource;
+
+  constructor(message: string, init: APIErrorInit & { source: ConversationSource }) {
+    super(message, { ...init, code: CONNECTOR_CONVERSATION_CODE });
+    this.source = init.source;
+  }
+}
 /** 422: the body failed validation, FastAPI's own refusal shape. The per-field messages arrive as a list of `detail` objects and are joined into one line on the error; `body` keeps the whole response. */
 export class UnprocessableEntityError extends APIError {}
 /**

@@ -3,6 +3,7 @@ import {
   APIConnectionError,
   APP_OPERATIONS,
   ConflictError,
+  ConnectorConversationError,
   MatterWave,
   MatterWaveConfigError,
   NotFoundError,
@@ -16,6 +17,12 @@ import { BASE_URL, REQUEST_ID, client, json, recordSleeps, sse, stubFetch } from
 
 const CONV = "c0ffee00-0000-4000-8000-000000000001";
 const GEN = "gen-7f3a";
+const SLACK_SOURCE = {
+  connector: "slack",
+  connection_id: "conn-1",
+  channel_label: "#support",
+  url: "https://acme.slack.com/archives/C01/p1700000000000100",
+};
 
 /** One frame the way generation.py's `sse_frame` writes it. */
 function frame(event: string, data: unknown, id: string | null = null): string {
@@ -391,6 +398,87 @@ describe("the JSON routes", () => {
     expect((err as ConflictError).message).toBe(
       "A temporary conversation is not kept, so it cannot be forked.",
     );
+  });
+
+  it("a conversation carries its preset and its connector source", async () => {
+    const { fetch } = stubFetch([
+      json(
+        conversation({
+          preset_id: "pre-1",
+          preset: { id: "pre-1", name: "Support" },
+          source: SLACK_SOURCE,
+        }),
+      ),
+    ]);
+    const conv = await client(fetch).conversations.get(CONV);
+    expect(conv.preset_id).toBe("pre-1");
+    expect(conv.preset).toEqual({ id: "pre-1", name: "Support" });
+    expect(conv.source).toEqual(SLACK_SOURCE);
+  });
+
+  it("a conversation a person started has null for all three", async () => {
+    const { fetch } = stubFetch([json(conversation({ preset_id: null, preset: null, source: null }))]);
+    const conv = await client(fetch).conversations.get(CONV);
+    expect(conv.preset_id).toBeNull();
+    expect(conv.preset).toBeNull();
+    expect(conv.source).toBeNull();
+  });
+
+  it("a send into a connector's conversation is ConnectorConversationError, carrying the thread", async () => {
+    // The app's shape for it: `detail` for people, `code` and the thread
+    // beside it, so a client can point at where the answer will be.
+    const refusal = {
+      detail: "This conversation is answered from slack in #support; reply there. Fork it to continue it here.",
+      code: "connector_conversation",
+      source: SLACK_SOURCE,
+      request_id: REQUEST_ID,
+    };
+    const { fetch } = stubFetch([json(refusal, 409)]);
+    const err = await client(fetch, { maxRetries: 0 })
+      .conversations.send(CONV, { content: "Hi there" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectorConversationError);
+    expect(err).toBeInstanceOf(ConflictError);
+    const refused = err as ConnectorConversationError;
+    expect(refused.status).toBe(409);
+    expect(refused.code).toBe("connector_conversation");
+    expect(refused.message).toBe(refusal.detail);
+    expect(refused.requestId).toBe(REQUEST_ID);
+    expect(refused.source).toEqual(SLACK_SOURCE);
+    expect(refused.body).toEqual(refusal);
+    expect(refused.name).toBe("ConnectorConversationError");
+  });
+
+  it("an edit and a regenerate in a connector's conversation are the same refusal", async () => {
+    const refusal = {
+      detail: "This conversation is answered from slack in #support; reply there.",
+      code: "connector_conversation",
+      source: { connector: "slack", channel_label: "#support" },
+      request_id: REQUEST_ID,
+    };
+    const { fetch } = stubFetch([() => json(refusal, 409)]);
+    const api = client(fetch, { maxRetries: 0 });
+    const edited = await api.conversations.edit(CONV, "m-user", { content: "Again" }).catch((e: unknown) => e);
+    const regenerated = await api.conversations.regenerate(CONV, "m-asst", {}).catch((e: unknown) => e);
+    expect(edited).toBeInstanceOf(ConnectorConversationError);
+    expect(regenerated).toBeInstanceOf(ConnectorConversationError);
+    // A field the server left out reads as null, never as undefined.
+    expect((regenerated as ConnectorConversationError).source).toEqual({
+      connector: "slack",
+      connection_id: null,
+      channel_label: "#support",
+      url: null,
+    });
+  });
+
+  it("a 409 without the code stays a plain ConflictError", async () => {
+    const { fetch } = stubFetch([json({ detail: "A temporary conversation is not kept.", request_id: REQUEST_ID }, 409)]);
+    const err = await client(fetch, { maxRetries: 0 })
+      .conversations.send(CONV, { content: "Hi there" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err).not.toBeInstanceOf(ConnectorConversationError);
+    expect((err as ConflictError).code).toBeNull();
   });
 
   it("update sets and clears the default model, always sending the field", async () => {

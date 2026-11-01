@@ -221,6 +221,31 @@ export interface ConversationMessage {
   finish_reason: string | null;
 }
 
+/**
+ * The org preset a conversation answers with, as the conversation carries
+ * it beside `preset_id`: the id again, and the name a composer can label
+ * the choice with.
+ */
+export interface ConversationPreset {
+  id: string;
+  name: string;
+}
+
+/**
+ * Where a connector opened a conversation: which connector (`slack`), the
+ * connection it came through, the channel as a person would name it
+ * (`#support`), and a link to the thread when the connector has one. Such a
+ * conversation is answered in that thread alone -- `send`, `edit` and
+ * `regenerate` in it throw `ConnectorConversationError` -- and a fork of it
+ * is an ordinary conversation with no source.
+ */
+export interface ConversationSource {
+  connector: string;
+  connection_id: string | null;
+  channel_label: string | null;
+  url: string | null;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -241,6 +266,18 @@ export interface Conversation {
    * after its last message. Fixed at creation.
    */
   temporary?: boolean | null;
+  /**
+   * The org preset the conversation answers with, when it is on one: the
+   * id, and the same with its name as `preset`. Null for a conversation
+   * answering with its own picks; absent from an API that predates presets.
+   */
+  preset_id?: string | null;
+  preset?: ConversationPreset | null;
+  /**
+   * Where a connector opened the conversation; null for one a person
+   * started, absent from an API that predates connectors.
+   */
+  source?: ConversationSource | null;
 }
 
 /**

@@ -80,7 +80,11 @@ Every refusal is an `APIError` subclass by status: `BadRequestError` (400),
 (404), `ConflictError` (409), `RateLimitError` (429), `ServerError` (5xx). Each carries the API's
 envelope (`message`, `type`, `code`, `param`) and `requestId`; a
 `RateLimitError` also carries `rateLimit` (limit, remaining, reset seconds)
-from the `X-RateLimit-*` headers. An error that
+from the `X-RateLimit-*` headers. A send, edit or regenerate in a
+conversation a connector opened (one started from Slack) is a
+`ConnectorConversationError`, the `ConflictError` whose `code` is
+`connector_conversation` and whose `source` names the connector, the
+channel and the thread's link; fork it to continue it here. An error that
 arrives inside a stream, after the 200, is an `APIError` with `status: null`.
 Connection failures are `APIConnectionError`; a per-attempt timeout
 (`timeoutMs`, default 60s, covering the connection and headers, not a stream's
