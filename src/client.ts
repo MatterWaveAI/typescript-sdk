@@ -18,7 +18,8 @@
  * safe to send twice (GET, PUT, DELETE); a POST or PATCH is sent again only
  * when the connection was never made, since the first copy may already have
  * taken effect. Every error carries the `X-Request-Id` the server stamped on
- * the refusal.
+ * the refusal, and every write an `Idempotency-Key` that stays the same
+ * across its retries.
  */
 
 import {
@@ -59,6 +60,7 @@ export const API_KEY_ENV = "MATTERWAVE_API_KEY";
 export const BASE_URL_ENV = "MATTERWAVE_BASE_URL";
 const API_PREFIX = "/v1";
 const REQUEST_ID_HEADER = "x-request-id";
+export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 const SSE_DONE = "[DONE]";
 const USER_AGENT = `matterwave-typescript/${VERSION}`;
 
@@ -80,6 +82,10 @@ const NON_RETRYABLE_429_CODES = new Set(["insufficient_quota"]);
 // message stored and billed, a key minted -- so it is only sent again when the
 // failure proves the server never acted on it.
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]);
+// Methods that only read. Every other request is a write and carries an
+// `Idempotency-Key`, one per call and the same on each retry of it, so a
+// server that keeps the keys can answer a repeat with the first result.
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 // Error codes for a connection that was never made, so no byte of the request
 // was written: Node's (libuv and undici) and Bun's names for them. A reset or
 // a timeout after connecting leaves open whether the server acted.
@@ -160,6 +166,12 @@ export interface RequestOptions {
   maxRetries?: number;
   /** The longest one retry of this call may wait, overriding the client's `maxRetryWaitMs`. */
   maxRetryWaitMs?: number;
+  /**
+   * The `Idempotency-Key` this write carries on every attempt, in place of
+   * the fresh UUID it would get: for a write whose retries may come from
+   * another process (a job queue's id, say). Ignored on a read.
+   */
+  idempotencyKey?: string;
 }
 
 /** The settings `withOptions` may replace; anything left out keeps the client's. */
@@ -169,6 +181,23 @@ export interface ClientOverrides {
   maxRetryWaitMs?: number;
   /** Added to the client's `defaultHeaders`, replacing any of the same name. */
   defaultHeaders?: Record<string, string>;
+  /** The key every write made through the view carries, as `RequestOptions.idempotencyKey`: make one view per write. */
+  idempotencyKey?: string;
+}
+
+/** A fresh key for one write: a random (version 4) UUID, as Stripe and OpenAI send. */
+export function newIdempotencyKey(): string {
+  const crypto = (globalThis as { crypto?: Crypto }).crypto;
+  // `randomUUID` needs a secure context in a browser; `getRandomValues` does not.
+  if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
+  if (typeof crypto?.getRandomValues !== "function") {
+    throw new MatterWaveError("No Web Crypto in this runtime to make an idempotency key with.");
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** @internal One operation, ready for `send`. */
@@ -647,6 +676,8 @@ export class MatterWave {
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly maxRetryWaitMs: number;
+  /** Set only on a `withOptions` view: the key its writes carry. */
+  private idempotencyKey: string | null = null;
   private readonly defaultHeaders: Record<string, string>;
   private readonly fetchImpl: Fetch;
   private readonly onRequest: ((request: { method: string; path: string }) => void) | null;
@@ -701,7 +732,10 @@ export class MatterWave {
    * The view shares the client's `fetch` and hooks.
    */
   withOptions(overrides: ClientOverrides): MatterWave {
-    return new MatterWave({
+    if (overrides.idempotencyKey !== undefined && overrides.idempotencyKey.trim() === "") {
+      throw new MatterWaveConfigError("idempotencyKey must be non-empty");
+    }
+    const view = new MatterWave({
       apiKey: this.apiKey,
       baseUrl: this.baseUrl,
       timeoutMs: overrides.timeoutMs ?? this.timeoutMs,
@@ -712,6 +746,8 @@ export class MatterWave {
       onRequest: this.onRequest ?? undefined,
       onResponse: this.onResponse ?? undefined,
     });
+    view.idempotencyKey = overrides.idempotencyKey ?? this.idempotencyKey;
+    return view;
   }
 
   /** `GET /v1`: the version, the endpoints and the stability promise. No key needed. */
@@ -797,7 +833,12 @@ export class MatterWave {
     prepared: Prepared,
     options: RequestOptions,
   ): Promise<{ response: Response; controller: AbortController }> {
-    const headers = this.headersFor(prepared, options.headers);
+    // One key per call, made before the first attempt so every retry
+    // presents the same one.
+    const idempotencyKey = READ_METHODS.has(prepared.method)
+      ? null
+      : (options.idempotencyKey ?? this.idempotencyKey ?? newIdempotencyKey());
+    const headers = this.headersFor(prepared, options.headers, idempotencyKey);
     const url = this.baseUrl + prepared.path;
     // The call's own bounds win, then the operation's (an MCP tool that
     // runs a whole model turn), then the client's defaults.
@@ -867,9 +908,14 @@ export class MatterWave {
    * Least specific first: the client's own `Accept` and `User-Agent`, then
    * `defaultHeaders`, which may replace them (a client built on this one
    * names itself), then what the operation needs (`Last-Event-ID` on a
-   * resume) and the call's own, then the bearer.
+   * resume) and the call's own, then a write's idempotency key, then the
+   * bearer.
    */
-  private headersFor(prepared: Prepared, extra?: Record<string, string>): Record<string, string> {
+  private headersFor(
+    prepared: Prepared,
+    extra: Record<string, string> | undefined,
+    idempotencyKey: string | null,
+  ): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: prepared.stream ? "text/event-stream" : "application/json",
       "User-Agent": USER_AGENT,
@@ -877,6 +923,9 @@ export class MatterWave {
       ...(prepared.headers ?? {}),
       ...(extra ?? {}),
     };
+    // A key the caller set by hand, under any spelling, is theirs to keep.
+    const named = Object.keys(headers).some((name) => name.toLowerCase() === IDEMPOTENCY_HEADER.toLowerCase());
+    if (idempotencyKey !== null && !named) headers[IDEMPOTENCY_HEADER] = idempotencyKey;
     if (prepared.body !== undefined && !isForm(prepared.body)) headers["Content-Type"] = "application/json";
     if (prepared.keyed) {
       if (this.apiKey === null) {

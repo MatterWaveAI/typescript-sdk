@@ -99,6 +99,13 @@ connection was never made: after a 5xx, a timeout or a reply cut short, the
 first copy may already have taken effect, so the error is thrown instead. A
 streamed request is retried only before its stream starts.
 
+Every write (any method but GET) carries an `Idempotency-Key` header: a fresh
+UUID per call, the same on each of its retries, so the server can recognise a
+repeat. `{ idempotencyKey }` in a call's options supplies your own, for a write
+whose retries may come from another process. The API does not yet answer a
+repeated key with the first result, so the narrower retry rule for writes
+above still applies.
+
 ### Per-call settings
 
 `timeoutMs`, `maxRetries` and `maxRetryWaitMs` are set on the client and apply

@@ -33,6 +33,8 @@ export {
   DEFAULT_MAX_RETRIES,
   DEFAULT_MAX_RETRY_WAIT_MS,
   DEFAULT_TIMEOUT_MS,
+  IDEMPOTENCY_HEADER,
+  newIdempotencyKey,
   setSleep,
 } from "./client.js";
 export type { ClientOptions, ClientOverrides, Fetch, RequestOptions, Sleep } from "./client.js";
