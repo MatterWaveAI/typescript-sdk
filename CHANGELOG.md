@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `client.presets`: the org's agent presets -- `list` (`PresetListing`:
+  `data`, `tools`, `limits`, `can_manage`), `get`, `create`, `update`
+  (`tools: null` goes back to the default set, `welcome_message: null`
+  drops it) and `delete`. Reading takes a key with `chat:read`, writing one
+  with `presets:manage`.
+- `conversations.create({ preset_id })` starts a conversation on a preset,
+  and `conversations.update(id, { preset_id })` puts one on a preset or,
+  with `null`, takes it off.
+- `client.connections`, for an owner's or admin's person token: `list`
+  (`ConnectionList`, with the connectors on offer and the notice, outcome
+  and identity-status vocabularies), `get`, `create` (`pending` without
+  credentials), `update` (status, rate limit, config, credentials),
+  `delete`, `rotateUrl` and `slackManifest`; `connections.routes` (`list`,
+  `create`, `update`, `delete`); `connections.identities` (`list`, `map`,
+  `unmap`, `block`, `unblock`, `forMember`); and `connections.events`
+  (`list` by `outcome` and `since`, `pages`, `items`). Credentials go in and
+  never come out: `Connection` has no field for them, and the client drops
+  them from an answer that carried them.
+- `OrgUsage.by_connection` (`ConnectionUsage`): what each connector
+  connection's turns cost in the month.
+- `tests/openapi.json` and the vendored route document are refreshed to the
+  platform with presets and connectors, and a contract test holds each
+  preset, connection and route write to its request schema.
 - `Conversation.preset_id`, `Conversation.preset` (`ConversationPreset`:
   the id and name) and `Conversation.source` (`ConversationSource`: the
   `connector`, `connection_id`, `channel_label` and `url` of the thread a

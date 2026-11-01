@@ -221,6 +221,29 @@ export const APP_OPERATIONS = {
   "auth.device.lookup": ["POST", "/api/auth/device/lookup"],
   "auth.device.approve": ["POST", "/api/auth/device/approve"],
   "auth.device.deny": ["POST", "/api/auth/device/deny"],
+  "presets.list": ["GET", "/api/org/presets"],
+  "presets.get": ["GET", "/api/org/presets/{preset_id}"],
+  "presets.create": ["POST", "/api/org/presets"],
+  "presets.update": ["PATCH", "/api/org/presets/{preset_id}"],
+  "presets.delete": ["DELETE", "/api/org/presets/{preset_id}"],
+  "connections.list": ["GET", "/api/org/connections"],
+  "connections.get": ["GET", "/api/org/connections/{connection_id}"],
+  "connections.create": ["POST", "/api/org/connections"],
+  "connections.update": ["PATCH", "/api/org/connections/{connection_id}"],
+  "connections.delete": ["DELETE", "/api/org/connections/{connection_id}"],
+  "connections.rotateUrl": ["POST", "/api/org/connections/{connection_id}/rotate-url"],
+  "connections.slackManifest": ["GET", "/api/org/connections/slack/manifest"],
+  "connections.routes.list": ["GET", "/api/org/connections/{connection_id}/routes"],
+  "connections.routes.create": ["POST", "/api/org/connections/{connection_id}/routes"],
+  "connections.routes.update": ["PATCH", "/api/org/connections/{connection_id}/routes/{route_id}"],
+  "connections.routes.delete": ["DELETE", "/api/org/connections/{connection_id}/routes/{route_id}"],
+  "connections.identities.list": ["GET", "/api/org/connections/{connection_id}/identities"],
+  "connections.identities.map": ["PATCH", "/api/org/connections/{connection_id}/identities/{identity_id}"],
+  "connections.identities.unmap": ["PATCH", "/api/org/connections/{connection_id}/identities/{identity_id}"],
+  "connections.identities.block": ["PATCH", "/api/org/connections/{connection_id}/identities/{identity_id}"],
+  "connections.identities.unblock": ["PATCH", "/api/org/connections/{connection_id}/identities/{identity_id}"],
+  "connections.identities.forMember": ["GET", "/api/org/connector-identities"],
+  "connections.events.list": ["GET", "/api/org/connections/{connection_id}/events"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {
@@ -387,6 +410,12 @@ export interface CreateConversationParams {
    * hard-deleted 24 hours after its last message. Fixed at creation.
    */
   temporary?: boolean | null;
+  /**
+   * One of the org's live presets (`client.presets.list()`), whose model,
+   * instructions and tools the conversation's turns answer with; null or
+   * left out is no preset.
+   */
+  preset_id?: string | null;
 }
 
 /**
@@ -398,6 +427,8 @@ export interface UpdateConversationParams {
   default_model?: string | null;
   /** The person's name for the conversation, 1-200 characters once trimmed. */
   title?: string;
+  /** Put the conversation on one of the org's presets; `null` takes it off, back to its own model and instructions. */
+  preset_id?: string | null;
 }
 
 export interface SendMessageParams {

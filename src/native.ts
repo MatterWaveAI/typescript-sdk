@@ -129,8 +129,8 @@ const DELIVERY_STATUSES: readonly DeliveryStatus[] = ["pending", "sending", "del
 const AUDIT_LIMIT_MAX = 200;
 const KEY_FIELDS = ["name", "scopes", "expires_in_days", "expires_at", "allowed_cidrs", "rpm_limit"] as const;
 
-/** The keys that were given, `null` included: where null means "clear it", it has to be sent. */
-function given(body: object): Record<string, unknown> {
+/** @internal The keys that were given, `null` included: where null means "clear it", it has to be sent. */
+export function given(body: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
 }
 

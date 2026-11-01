@@ -40,6 +40,7 @@ import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsCli
 import { Accounts, Edge, Mfa, Passkeys } from "./native.js";
 import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
 import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
+import { Connections, Presets } from "./connectors.js";
 import { sseDataFrames } from "./sse.js";
 import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
 import type { LogLevel, Logger } from "./log.js";
@@ -811,6 +812,10 @@ export class MatterWave {
   readonly accounts: Accounts;
   /** Edge pairing and sync: an admin mints codes, a device key pushes. */
   readonly edge: Edge;
+  /** The org's agent presets: any member reads them, an owner or admin writes them. */
+  readonly presets: Presets;
+  /** The org's connectors to outside workspaces, their routes, identities and event log; a person's token. */
+  readonly connections: Connections;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -896,6 +901,8 @@ export class MatterWave {
     this.mfa = new Mfa(this);
     this.accounts = new Accounts(this);
     this.edge = new Edge(this);
+    this.presets = new Presets(this);
+    this.connections = new Connections(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

@@ -310,8 +310,13 @@ export class Conversations {
    * search, cannot be pinned, shared, forked, filed or tagged -- each a
    * 409 saying a temporary conversation is not kept -- and it is
    * hard-deleted 24 hours after its last message. Fixed at creation.
+   *
+   * `preset_id` puts the conversation on one of the org's live presets
+   * (`client.presets.list()`), whose model, instructions and tools its turns
+   * then answer with; null or left out is no preset.
    */
   create(params: CreateConversationParams = {}, options: RequestOptions = {}): Promise<WithRequestId<Conversation>> {
+    if (params.preset_id === "") throw new MatterWaveConfigError("preset_id must be a preset's id, or null for no preset");
     return this.call("POST", "/api/conversations", defined({ ...params }), options);
   }
 
@@ -327,12 +332,14 @@ export class Conversations {
 
   /**
    * `PATCH /api/conversations/{id}`: rename the conversation, set the model
-   * its turns use when a turn names none, or both.
+   * its turns use when a turn names none, put it on a preset, or any of them
+   * together.
    *
-   * `default_model: null` clears the model back to the deployment's default,
-   * so that key is sent whenever it is present, null included; a key left
-   * out is left alone on the server, which reads an empty body as "nothing
-   * to update" -- refused here before the request is made.
+   * `default_model: null` clears the model back to the deployment's default
+   * and `preset_id: null` takes the conversation off its preset, so those
+   * keys are sent whenever they are present, null included; a key left out
+   * is left alone on the server, which reads an empty body as "nothing to
+   * update" -- refused here before the request is made.
    */
   update(
     conversationId: string,
@@ -342,8 +349,12 @@ export class Conversations {
     const body: Record<string, unknown> = {};
     if (params.default_model !== undefined) body.default_model = params.default_model;
     if (params.title !== undefined) body.title = params.title;
+    if (params.preset_id !== undefined) {
+      if (params.preset_id === "") throw new MatterWaveConfigError("preset_id must be a preset's id, or null to take it off");
+      body.preset_id = params.preset_id;
+    }
     if (Object.keys(body).length === 0) {
-      throw new MatterWaveConfigError("update needs a title or a default_model");
+      throw new MatterWaveConfigError("update needs a title, a default_model or a preset_id");
     }
     return this.call("PATCH", conversationPath(conversationId), body, options);
   }
