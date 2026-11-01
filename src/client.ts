@@ -158,6 +158,17 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Retries after the first attempt, for this one call, overriding the client's `maxRetries`. */
   maxRetries?: number;
+  /** The longest one retry of this call may wait, overriding the client's `maxRetryWaitMs`. */
+  maxRetryWaitMs?: number;
+}
+
+/** The settings `withOptions` may replace; anything left out keeps the client's. */
+export interface ClientOverrides {
+  timeoutMs?: number;
+  maxRetries?: number;
+  maxRetryWaitMs?: number;
+  /** Added to the client's `defaultHeaders`, replacing any of the same name. */
+  defaultHeaders?: Record<string, string>;
 }
 
 /** @internal One operation, ready for `send`. */
@@ -682,6 +693,27 @@ export class MatterWave {
     return this._lastResponse;
   }
 
+  /**
+   * This client with some settings replaced, for the calls made through it:
+   * `client.withOptions({ timeoutMs: 600_000 }).keys.create(...)`. Every
+   * method also takes the same per call in its `RequestOptions`; this is for
+   * handing a differently-bounded client to code that makes several calls.
+   * The view shares the client's `fetch` and hooks.
+   */
+  withOptions(overrides: ClientOverrides): MatterWave {
+    return new MatterWave({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      timeoutMs: overrides.timeoutMs ?? this.timeoutMs,
+      maxRetries: overrides.maxRetries ?? this.maxRetries,
+      maxRetryWaitMs: overrides.maxRetryWaitMs ?? this.maxRetryWaitMs,
+      defaultHeaders: { ...this.defaultHeaders, ...(overrides.defaultHeaders ?? {}) },
+      fetch: this.fetchImpl,
+      onRequest: this.onRequest ?? undefined,
+      onResponse: this.onResponse ?? undefined,
+    });
+  }
+
   /** `GET /v1`: the version, the endpoints and the stability promise. No key needed. */
   index(options: RequestOptions = {}): Promise<WithRequestId<ApiIndex>> {
     return this.json<ApiIndex>(
@@ -770,6 +802,7 @@ export class MatterWave {
     // The call's own bounds win, then the operation's (an MCP tool that
     // runs a whole model turn), then the client's defaults.
     const maxRetries = options.maxRetries ?? this.maxRetries;
+    const maxRetryWaitMs = options.maxRetryWaitMs ?? this.maxRetryWaitMs;
     const timeoutMs = options.timeoutMs ?? prepared.timeoutMs ?? this.timeoutMs;
     const repeatable = safeToRepeat(prepared);
     // A FormData goes as it is, so fetch writes the multipart boundary; it
@@ -822,7 +855,7 @@ export class MatterWave {
       this._lastResponse = new RawResponse(response);
       if (this.onResponse) this.onResponse(this._lastResponse);
       const delay = backoffMs(attempt, retryAfterSeconds(response));
-      if (attempt < maxRetries && delay <= this.maxRetryWaitMs && shouldRetry(response, raw, repeatable)) {
+      if (attempt < maxRetries && delay <= maxRetryWaitMs && shouldRetry(response, raw, repeatable)) {
         await pause(delay, options.signal);
         continue;
       }

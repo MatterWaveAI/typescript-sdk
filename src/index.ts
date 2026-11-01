@@ -35,7 +35,7 @@ export {
   DEFAULT_TIMEOUT_MS,
   setSleep,
 } from "./client.js";
-export type { ClientOptions, Fetch, RequestOptions, Sleep } from "./client.js";
+export type { ClientOptions, ClientOverrides, Fetch, RequestOptions, Sleep } from "./client.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";

@@ -99,6 +99,20 @@ connection was never made: after a 5xx, a timeout or a reply cut short, the
 first copy may already have taken effect, so the error is thrown instead. A
 streamed request is retried only before its stream starts.
 
+### Per-call settings
+
+`timeoutMs`, `maxRetries` and `maxRetryWaitMs` are set on the client and apply
+to every call. Every method takes a last `RequestOptions` argument that gives
+the call its own -- with `signal` and `headers` besides:
+
+```ts
+await client.conversations.compact(conversationId, { timeoutMs: 600_000, maxRetries: 0 });
+```
+
+`client.withOptions({ timeoutMs, maxRetries, maxRetryWaitMs, defaultHeaders })`
+returns the client with those settings replaced, sharing its `fetch` and hooks,
+for code that makes several calls under the same bounds.
+
 ## Tools, structured output and embeddings
 
 `tools`, `tool_choice` and `response_format` are passed to the model as sent

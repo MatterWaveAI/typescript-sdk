@@ -108,3 +108,55 @@ describe("per-call maxRetries", () => {
     }
   });
 });
+
+describe("withOptions", () => {
+  it("gives the calls made through it the replaced settings", async () => {
+    const { fetch, calls } = stubFetch([text("busy", 503), text("busy", 503), json({ data: [] }), text("busy", 503)]);
+    const { restore } = recordSleeps();
+    try {
+      const c = client(fetch, { maxRetries: 0 });
+      await c.withOptions({ maxRetries: 2 }).keys.list();
+      expect(calls()).toBe(3);
+      await expect(c.keys.list()).rejects.toBeInstanceOf(ServerError);
+      expect(calls()).toBe(4);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a per-call timeout through the view cuts the call", async () => {
+    const never = (_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    const c = new MatterWave({ apiKey: API_KEY, baseUrl: BASE_URL, maxRetries: 0, fetch: never });
+    await expect(c.withOptions({ timeoutMs: 5 }).models.retrieve("grt-nano")).rejects.toBeInstanceOf(APITimeoutError);
+  });
+
+  it("adds to the default headers and leaves the client as it was", async () => {
+    const { fetch, seen } = stubFetch([json({ data: [] }), json({ data: [] })]);
+    const c = new MatterWave({ apiKey: API_KEY, baseUrl: BASE_URL, defaultHeaders: { "X-Client": "cli/1" }, fetch });
+    await c.withOptions({ defaultHeaders: { "X-Trace": "t-1" } }).keys.list();
+    await c.keys.list();
+    expect(seen[0]!.headers["X-Client"]).toBe("cli/1");
+    expect(seen[0]!.headers["X-Trace"]).toBe("t-1");
+    expect(seen[1]!.headers["X-Trace"]).toBeUndefined();
+  });
+
+  it("caps the retry wait its own way, per call as well", async () => {
+    const { fetch, calls } = stubFetch([json({ detail: "slow" }, 429, { "Retry-After": "120" }), json({ data: [] })]);
+    const { sleeps, restore } = recordSleeps();
+    try {
+      await client(fetch).keys.list({ maxRetryWaitMs: 300_000 });
+      expect(calls()).toBe(2);
+      expect(sleeps).toEqual([120_000]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("refuses a bad setting", () => {
+    const { fetch } = stubFetch([json({})]);
+    expect(() => client(fetch).withOptions({ maxRetries: -1 })).toThrow(/maxRetries/);
+  });
+});
