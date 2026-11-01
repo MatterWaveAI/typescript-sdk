@@ -38,10 +38,13 @@ import type {
   ApiKeyWithSecret,
   Attachment,
   AttachmentLimits,
+  AttachIdpParams,
   AuditFilters,
   AuditListParams,
   AuditPage,
   Budget,
+  ClaimDomainParams,
+  CloseOrgParams,
   ConversationTags,
   CreateAnnouncementParams,
   CreateInviteLinkParams,
@@ -54,6 +57,9 @@ import type {
   CreatedShare,
   DeliveryStatus,
   DeleteAccountParams,
+  DomainChallengeAnswer,
+  DomainList,
+  DomainVerification,
   EmailChangeCancelled,
   EmailChangeState,
   EmailCodeSent,
@@ -62,6 +68,7 @@ import type {
   ExportJob,
   ExportJobStatus,
   Folder,
+  IdpList,
   ImportJob,
   ImportJobList,
   InviteList,
@@ -73,27 +80,42 @@ import type {
   MemberBudget,
   MemberBudgetList,
   MemberList,
+  ModelPolicy,
   NotificationList,
   NotificationListParams,
   OnboardingComplete,
+  OrgProfile,
+  OrgClosed,
+  OrgDomainRow,
+  OrgIdpRow,
   OrgMember,
   OrgRole,
+  OrgShareList,
+  OrgShareRevoked,
   OrgUsage,
   PasswordChangeParams,
   PasswordChanged,
   Preferences,
   ReadAllNotifications,
   ReadNotification,
+  RecoveryCodeMinted,
+  RenameOrgParams,
   RenameParams,
   SessionList,
   SessionRevoked,
   SessionsRevokedOthers,
   SetMemberCapParams,
   SetMemberDefaultCapParams,
+  SetModelPolicyParams,
   SetOverageCapParams,
   SetRoleParams,
+  SetSsoParams,
   ShareList,
   SharedConversation,
+  SharingPolicy,
+  SsoEnforced,
+  SsoRelaxed,
+  SsoSettings,
   StartEmailChangeParams,
   Tag,
   TermsAccepted,
@@ -1128,6 +1150,179 @@ export class Members extends Resource {
   join(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
     if (!token) throw new MatterWaveConfigError("token must be non-empty");
     return this.call("POST", "/api/join", { token }, options);
+  }
+}
+
+// --- org management ------------------------------------------------------------
+
+function domainPath(domain: string, suffix = ""): string {
+  return `/api/org/domains/${segment("domain", domain)}${suffix}`;
+}
+
+/**
+ * The org itself and its admin self-service: the name, the closure, the
+ * model allow-list, the sharing switch and every share link, and the SSO
+ * configuration -- the identity provider, the email domains and their
+ * DNS proof, and the enforcement switch with its break-glass code.
+ *
+ * **Admin scoping.** These routes gate on the caller's membership row,
+ * never a token claim, and they refuse an API key outright: a signed-in
+ * session of an org owner or admin is what answers them. Reading the org
+ * and its model policy is admin; sharing and SSO/domains/IdP are admin;
+ * `close`, enabling SSO enforcement and minting a recovery code are owner
+ * only (disabling enforcement is open to any admin, because the person
+ * undoing a lock-out should not need the person who caused it). The audit
+ * trail beside these lives on `client.audit` (`list`, `exportCsv`).
+ */
+export class Org extends Resource {
+  /** `GET /api/org`: the org and the caller's role in it. Any member may read it. */
+  get(options: RequestOptions = {}): Promise<WithRequestId<OrgProfile>> {
+    return this.call("GET", "/api/org", undefined, options);
+  }
+
+  /** `PATCH /api/org`: give the org a real name. Owner or admin. */
+  rename(params: RenameOrgParams, options: RequestOptions = {}): Promise<WithRequestId<OrgProfile>> {
+    if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
+    return this.call("PATCH", "/api/org", params, options);
+  }
+
+  /**
+   * `POST /api/org/close`: close the workspace for everyone in it.
+   * Danger: from the commit every request from the org is a 410, its
+   * conversations are soft-deleted and purged after `retention_days`, its
+   * keys, invites and links stop, and the subscription ends. `confirm` is
+   * the org's name, exactly (case-insensitive). Idempotent: a repeat keeps
+   * the first closure and re-runs the side effects, which is how a Stripe
+   * or IdP failure is retried. Owner only.
+   */
+  close(params: CloseOrgParams, options: RequestOptions = {}): Promise<WithRequestId<OrgClosed>> {
+    if (!params.confirm?.trim()) {
+      throw new MatterWaveConfigError("Type the organisation's name exactly to confirm.");
+    }
+    return this.call("POST", "/api/org/close", params, options);
+  }
+
+  /** `GET /api/org/models`: the plan's models with the org's switch on each. Owner or admin; members learn the outcome from the picker (`/api/models`). */
+  models(options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
+    return this.call("GET", "/api/org/models", undefined, options);
+  }
+
+  /**
+   * `PUT /api/org/models`: set the allow-list. An id the plan does not
+   * permit or the gateway does not serve is the server's 422 naming it;
+   * `null` lifts the restriction and the house model is added back
+   * whatever is sent. Owner or admin.
+   */
+  setModels(params: SetModelPolicyParams, options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
+    if (params.allowed !== null && !Array.isArray(params.allowed)) {
+      throw new MatterWaveConfigError("allowed must be a list of model ids or null");
+    }
+    return this.call("PUT", "/api/org/models", params, options);
+  }
+
+  /** `GET /api/org/sharing`: whether members may share conversations by link. Owner or admin. */
+  sharing(options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
+    return this.call("GET", "/api/org/sharing", undefined, options);
+  }
+
+  /** `PUT /api/org/sharing`: switch sharing on or off for the org. Switching off stops every existing link answering at once, without revoking them. Owner or admin, and audited. */
+  setSharing(params: SharingPolicy, options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
+    if (typeof params.enabled !== "boolean") throw new MatterWaveConfigError("enabled must be a boolean");
+    return this.call("PUT", "/api/org/sharing", params, options);
+  }
+
+  /** `GET /api/org/shares`: every link the org's members made, newest first, with who made each. Never the tokens. Owner or admin. */
+  shares(options: RequestOptions = {}): Promise<WithRequestId<OrgShareList>> {
+    return this.call("GET", "/api/org/shares", undefined, options);
+  }
+
+  /** `DELETE /api/org/shares/{id}`: revoke any link in the org. Another org's link and one that does not exist are the same 404. Owner or admin. */
+  revokeShare(shareId: string, options: RequestOptions = {}): Promise<WithRequestId<OrgShareRevoked>> {
+    return this.call("DELETE", `/api/org/shares/${segment("shareId", shareId)}`, undefined, options);
+  }
+
+  /** `GET /api/org/sso`: the policy, plus what would stop it being turned on. Owner or admin. */
+  sso(options: RequestOptions = {}): Promise<WithRequestId<SsoSettings>> {
+    return this.call("GET", "/api/org/sso", undefined, options);
+  }
+
+  /**
+   * `PUT /api/org/sso`: enforce, or stop enforcing, SSO. Enabling is owner
+   * only and runs the preflight first: with a blocker the answer is 409
+   * naming it. Enforced, the response carries a minted break-glass
+   * `recovery` code -- there is no way to reach the enforced state without
+   * having been handed the way back out of it, and it is shown once.
+   */
+  setSso(params: SetSsoParams, options: RequestOptions = {}): Promise<WithRequestId<SsoEnforced | SsoRelaxed>> {
+    if (typeof params.sso_required !== "boolean") {
+      throw new MatterWaveConfigError("sso_required must be a boolean");
+    }
+    return this.call("PUT", "/api/org/sso", params, options);
+  }
+
+  /** `POST /api/org/sso/recovery-code` (201): a fresh break-glass code, superseding any unused one. Owner only, and audited. */
+  mintRecoveryCode(options: RequestOptions = {}): Promise<WithRequestId<RecoveryCodeMinted>> {
+    return this.call("POST", "/api/org/sso/recovery-code", undefined, options);
+  }
+
+  /** `GET /api/org/domains`: the claimed domains and whether each is proven. Owner or admin. */
+  domains(options: RequestOptions = {}): Promise<WithRequestId<DomainList>> {
+    return this.call("GET", "/api/org/domains", undefined, options);
+  }
+
+  /** `POST /api/org/domains` (201): claim a domain, unverified. A claim another org holds is a 409 with no hint of whose. Owner or admin. */
+  claimDomain(params: ClaimDomainParams, options: RequestOptions = {}): Promise<WithRequestId<OrgDomainRow>> {
+    if (!params.domain?.trim()) throw new MatterWaveConfigError("domain must be a domain like example.com");
+    return this.call("POST", "/api/org/domains", params, options);
+  }
+
+  /** `GET /api/org/domains/{domain}/challenge`: the DNS TXT record to publish. Minted on first ask and stable thereafter. */
+  domainChallenge(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainChallengeAnswer>> {
+    return this.call("GET", domainPath(domain, "/challenge"), undefined, options);
+  }
+
+  /**
+   * `POST /api/org/domains/{domain}/verify`: prove the claim by looking
+   * for the TXT record. 200 proven; 202 the record is not there yet (the
+   * claim stands, `detail` says what was wrong); 503 the check could not
+   * be run at all. This is a security boundary, not a form field: the
+   * claim decides whose address gets an SSO button.
+   */
+  verifyDomain(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainVerification>> {
+    return this.call("POST", domainPath(domain, "/verify"), undefined, options);
+  }
+
+  /** `DELETE /api/org/domains/{domain}`: release the claim. Owner or admin. */
+  releaseDomain(domain: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", domainPath(domain), options);
+  }
+
+  /** `GET /api/org/idp`: the attached identity providers, never their secrets. Owner or admin. */
+  idps(options: RequestOptions = {}): Promise<WithRequestId<IdpList>> {
+    return this.call("GET", "/api/org/idp", undefined, options);
+  }
+
+  /** `POST /api/org/idp` (201): attach an OIDC provider by issuer, client id and secret. A 422 names the issuer when the IdP refused the configuration. Owner or admin. */
+  attachIdp(params: AttachIdpParams, options: RequestOptions = {}): Promise<WithRequestId<OrgIdpRow>> {
+    if (params.kind !== "oidc") throw new MatterWaveConfigError(`kind must be "oidc", got ${params.kind}`);
+    if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
+    if (!params.issuer?.startsWith("https://")) throw new MatterWaveConfigError("issuer must be an https:// URL");
+    if (!params.client_id?.trim()) throw new MatterWaveConfigError("client_id must not be blank");
+    if (!params.client_secret) throw new MatterWaveConfigError("client_secret must be non-empty");
+    const body: Record<string, unknown> = {
+      kind: params.kind,
+      name: params.name,
+      issuer: params.issuer,
+      client_id: params.client_id,
+      client_secret: params.client_secret,
+    };
+    if (params.scopes !== undefined) body.scopes = params.scopes;
+    return this.call("POST", "/api/org/idp", body, options);
+  }
+
+  /** `DELETE /api/org/idp/{provider}`: detach a provider. Postgres first, so nobody is sent to a provider that is about to disappear. Owner or admin. */
+  detachIdp(provider: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", `/api/org/idp/${segment("provider", provider)}`, options);
   }
 }
 

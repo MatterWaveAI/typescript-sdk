@@ -31,7 +31,7 @@ import type { RateLimit } from "./errors.js";
 import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
-import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
 import { Account } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
@@ -581,6 +581,8 @@ export class MatterWave {
   readonly imports: Imports;
   /** The org's members, invites, invite links and join. */
   readonly members: Members;
+  /** The org itself and its admin self-service: name, closure, models, sharing, SSO, domains, IdP. */
+  readonly org: Org;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -627,6 +629,7 @@ export class MatterWave {
     this.exports = new Exports(this);
     this.imports = new Imports(this);
     this.members = new Members(this);
+    this.org = new Org(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

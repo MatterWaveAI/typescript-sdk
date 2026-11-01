@@ -922,6 +922,220 @@ export interface CreateInviteLinkParams {
   expires_in_days?: number;
 }
 
+// --- org management -------------------------------------------------------------
+
+/** `GET /api/org`: the org and the caller's place in it. Any member may read it. */
+export interface OrgProfile {
+  id: string;
+  name: string;
+  created_at: string;
+  role: OrgRole | (string & {});
+}
+
+/** The body of `org.rename`. */
+export interface RenameOrgParams {
+  name: string;
+}
+
+/** The body of `org.close`: the org's name, typed exactly, as the confirmation. */
+export interface CloseOrgParams {
+  confirm: string;
+}
+
+/**
+ * The answer to `close`: the closure is recorded first (every later request
+ * from the org is a 410) and the side effects follow, each reported. Danger:
+ * this closes the workspace for everyone in it, soft-deletes its
+ * conversations and cancels the subscription, and is idempotent only in
+ * that a repeat re-runs the side effects. Owner only, by membership row.
+ */
+export interface OrgClosed {
+  status: string;
+  closed_at: string;
+  already_closed: boolean;
+  conversations_deleted: number;
+  retention_days: number;
+  api_keys_revoked: number | null;
+  invites_revoked: number | null;
+  invite_links_revoked: number | null;
+  subscription: string;
+  members_mailed: number;
+  members_not_mailed: number;
+  identity_removed: boolean;
+}
+
+/** One model in the org's allow-list view: whether the org permits it, and `locked` for the house model, which never turns off. */
+export interface ModelPolicyEntry {
+  id: string;
+  label: string;
+  partner: boolean;
+  context_window: number | null;
+  research_preview: boolean;
+  allowed: boolean;
+  locked: boolean;
+}
+
+/**
+ * `GET /api/org/models`, and the answer to `setModels`: the plan's models
+ * with the org's switch on each, ids the org switched off that the plan no
+ * longer offers (`unlisted`), and whether the allow-list is in force
+ * (`restricted`; null meant "everything the plan permits").
+ */
+export interface ModelPolicy {
+  house_model: string | null;
+  data: ModelPolicyEntry[];
+  unlisted: string[];
+  restricted: boolean;
+}
+
+/** The body of `org.setModels`: the ids members may use, or null for every model the plan permits. The house model is added back whatever is sent. */
+export interface SetModelPolicyParams {
+  allowed: string[] | null;
+}
+
+/** `GET`/`PUT /api/org/sharing`: whether members may share conversations by link. Switching it off stops every existing link at once, without revoking them. */
+export interface SharingPolicy {
+  enabled: boolean;
+}
+
+/** One share link as the org's view lists it: every link a member made, with who made it. Never the tokens. */
+export interface OrgShareRow {
+  id: string;
+  conversation_id: string;
+  title: string;
+  message_count: number;
+  include_attachments: boolean;
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  view_count: number;
+  status: "active" | "expired" | "revoked" | (string & {});
+}
+
+/** `GET /api/org/shares`: every link the org's members made, newest first. */
+export interface OrgShareList {
+  data: OrgShareRow[];
+}
+
+/** The answer to `org.revokeShare`. */
+export interface OrgShareRevoked {
+  status: string;
+}
+
+/** `GET /api/org/sso`: the policy, plus what would stop it being turned on, so the pane can say why before the switch is flipped. */
+export interface SsoSettings {
+  sso_required: boolean;
+  blockers: string[];
+}
+
+/** A break-glass sign-in code. `code` is in the answer that minted it and nowhere else (`shown_once`). */
+export interface RecoveryCode {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  created_by: string;
+  used_at: string | null;
+  code?: string;
+  shown_once?: true;
+}
+
+/** The answer to `setSso({ sso_required: true })`: enforced, with the way back in minted in the same breath -- the recovery code is shown exactly once. */
+export interface SsoEnforced {
+  sso_required: true;
+  recovery: RecoveryCode;
+}
+
+/** The answer to `setSso({ sso_required: false })`: any admin may disable; only an owner may enable. */
+export interface SsoRelaxed {
+  sso_required: false;
+}
+
+/** The body of `org.setSso`. */
+export interface SetSsoParams {
+  sso_required: boolean;
+}
+
+/** The answer to `org.mintRecoveryCode`: a fresh break-glass code, superseding any unused one. Owner only. */
+export interface RecoveryCodeMinted {
+  recovery: RecoveryCode;
+}
+
+/** The DNS TXT record the org publishes to prove it owns a domain: on the host, under the claimed domain, with this value. */
+export interface DnsChallenge {
+  type: "TXT";
+  host: string;
+  /** The full record name: the host prefixed with the domain. */
+  name: string;
+  value: string;
+}
+
+/** `GET /api/org/domains/{domain}/challenge`: the record to publish. Minted on first ask and stable thereafter. */
+export interface DomainChallengeAnswer {
+  record: DnsChallenge;
+}
+
+/** Where a domain's verification stands. On a not-yet check (`verifyDomain` answering 202) `detail` says what was wrong and `found` lists the TXT records DNS actually had. */
+export interface DomainVerification {
+  domain: string;
+  verified: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
+  method: string | null;
+  last_checked_at: string | null;
+  last_error: string | null;
+  record?: DnsChallenge;
+  detail?: string;
+  found?: string[];
+}
+
+/** One claimed domain: the claim, and whether it has been proven. */
+export interface OrgDomainRow {
+  domain: string;
+  verified: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string;
+}
+
+/** `GET /api/org/domains`. */
+export interface DomainList {
+  data: OrgDomainRow[];
+}
+
+/** The body of `org.claimDomain`. */
+export interface ClaimDomainParams {
+  domain: string;
+}
+
+/**
+ * One attached identity provider, as the org's routes describe it. Never
+ * the client secret: it went to the IdP and is not stored here.
+ */
+export interface OrgIdpRow {
+  /** The provider handle, for `detachIdp` and the login link. */
+  provider: string;
+  kind: "oidc" | (string & {});
+  name: string;
+  issuer: string | null;
+  created_at: string;
+}
+
+/** `GET /api/org/idp`. */
+export interface IdpList {
+  data: OrgIdpRow[];
+}
+
+/** The body of `org.attachIdp`. OIDC only in this slice; the issuer must be an https:// URL. */
+export interface AttachIdpParams {
+  kind: "oidc";
+  name: string;
+  issuer: string;
+  client_id: string;
+  client_secret: string;
+  scopes?: string[];
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

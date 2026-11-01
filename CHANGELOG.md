@@ -103,6 +103,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method is in the doc comments.
 - `OrgMember`, `MemberList`, `OrgInvite`, `InviteLinkRow`,
   `CreatedInviteLink`, `InvitePreview`, `JoinPreview` and `OrgRole` types.
+- `client.org` — the org management family (T-226): `get()` and
+  `rename({ name })`, `close({ confirm })` (the org's name typed exactly;
+  danger documented; owner only and idempotent), the model allow-list --
+  `models()` and `setModels({ allowed: string[] | null })` (the house
+  model is added back whatever is sent) -- the sharing switch --
+  `sharing()` / `setSharing({ enabled })`, `shares()` and
+  `revokeShare(id)` -- and the SSO configuration: `sso()` (the policy with
+  its preflight blockers), `setSso({ sso_required })` (owner only to
+  enable; the answer carries the break-glass `recovery` code, shown
+  exactly once), `mintRecoveryCode()`, the domains -- `domains()`,
+  `claimDomain({ domain })`, `domainChallenge(domain)` (the DNS TXT record
+  to publish), `verifyDomain(domain)` (200 proven, 202 not yet, 503 could
+  not run), `releaseDomain(domain)` -- and the identity providers --
+  `idps()` (never the secrets), `attachIdp({ kind: "oidc", name, issuer,
+  client_id, client_secret, scopes? })`, `detachIdp(provider)`. The audit
+  trail beside these stays `client.audit`. **Admin scoping:** every route
+  here gates on the membership row and refuses an API key; owner-only
+  methods are marked in their doc comments.
+- `Org`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
+  `SsoSettings`, `RecoveryCode`, `DnsChallenge`, `DomainVerification`,
+  `OrgDomainRow`, `OrgIdpRow` and `AttachIdpParams` types.
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.
