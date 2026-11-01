@@ -378,14 +378,25 @@ export class Stream implements AsyncIterable<WithRequestId<ChatCompletionChunk>>
   /**
    * Drain the stream and return the assistant message it spelled out: the
    * text, and each tool call reassembled from its fragments, ready to run
-   * and to send back in the next request's `messages`. For the finish
-   * reason and usage as well, feed the chunks to a
-   * `ChatCompletionAccumulator` yourself.
+   * and to send back in the next request's `messages`. `finalCompletion()`
+   * has the finish reason and usage as well.
    */
   async finalMessage(): Promise<AssistantMessage> {
     const accumulator = new ChatCompletionAccumulator();
     for await (const chunk of this) accumulator.add(chunk);
     return accumulator.message();
+  }
+
+  /**
+   * Drain the stream and return the whole answer as the non-streamed call
+   * would have: the message with its tool calls reassembled, the finish
+   * reason, the usage (all zeros unless the call asked for it with
+   * `stream_options: { include_usage: true }`), the id and the model.
+   */
+  async finalCompletion(): Promise<WithRequestId<ChatCompletion>> {
+    const accumulator = new ChatCompletionAccumulator();
+    for await (const chunk of this) accumulator.add(chunk);
+    return withRequestId(accumulator.completion(), this.requestId);
   }
 
   abort(): void {

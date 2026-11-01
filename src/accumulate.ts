@@ -3,7 +3,16 @@
  * message they spell out, and the `tool` message that answers a call.
  */
 
-import type { AssistantMessage, ChatCompletionChunk, FinishReason, Message, ToolCall, Usage } from "./types.js";
+import { MatterWaveError } from "./errors.js";
+import type {
+  AssistantMessage,
+  ChatCompletion,
+  ChatCompletionChunk,
+  FinishReason,
+  Message,
+  ToolCall,
+  Usage,
+} from "./types.js";
 
 interface PendingCall {
   id: string;
@@ -25,8 +34,9 @@ interface PendingCall {
  *       acc.add(chunk);
  *     }
  *     const message = acc.message(); // content and complete tool_calls
+ *     const completion = acc.completion(); // the same, with finish reason and usage
  *
- * `stream.finalMessage()` runs that loop.
+ * `stream.finalMessage()` and `stream.finalCompletion()` run that loop.
  */
 export class ChatCompletionAccumulator {
   private text = "";
@@ -35,11 +45,13 @@ export class ChatCompletionAccumulator {
   usage: Usage | null = null;
   model: string | null = null;
   id: string | null = null;
+  created: number | null = null;
 
   add(chunk: ChatCompletionChunk): void {
     if (chunk.usage) this.usage = chunk.usage;
     if (chunk.model) this.model = chunk.model;
     if (chunk.id) this.id = chunk.id;
+    if (chunk.created) this.created = chunk.created;
     const choice = chunk.choices?.[0];
     if (!choice) return;
     if (choice.finish_reason !== null && choice.finish_reason !== undefined) this.finishReason = choice.finish_reason;
@@ -79,6 +91,28 @@ export class ChatCompletionAccumulator {
     const calls = this.toolCalls;
     const content = this.text !== "" || calls.length === 0 ? this.text : null;
     return calls.length > 0 ? { role: "assistant", content, tool_calls: calls } : { role: "assistant", content };
+  }
+
+  /**
+   * The whole answer in the shape a non-streamed `create` resolves to: the
+   * message, its finish reason, the usage, the id and model. The usage is
+   * all zeros when the stream carried none -- ask for it with
+   * `stream_options: { include_usage: true }`. `MatterWaveError` when no
+   * chunk carried a finish reason: the stream was cut short, so it is not a
+   * whole answer.
+   */
+  completion(): ChatCompletion {
+    if (this.finishReason === null) {
+      throw new MatterWaveError("The stream ended without a finish reason, so it is not a whole completion.");
+    }
+    return {
+      id: this.id ?? "",
+      object: "chat.completion",
+      created: this.created ?? 0,
+      model: this.model ?? "",
+      choices: [{ index: 0, message: this.message(), finish_reason: this.finishReason }],
+      usage: this.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    };
   }
 }
 

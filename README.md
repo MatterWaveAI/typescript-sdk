@@ -123,8 +123,10 @@ const next = await client.chat.completions.create({ messages, tools });
 
 On a stream, `await stream.finalMessage()` drains it and returns the same
 message, each tool call put back together from its `delta.tool_calls`
-fragments (calls at different indexes may interleave).
-`ChatCompletionAccumulator` does the same one chunk at a time, for a client
+fragments (calls at different indexes may interleave); `await
+stream.finalCompletion()` resolves to the whole `ChatCompletion` instead, with
+the finish reason and the usage (pass `stream_options: { include_usage: true }`
+for the usage). `ChatCompletionAccumulator` does the same one chunk at a time, for a client
 that renders the text as it arrives and also wants the finish reason and usage:
 
 ```ts
@@ -288,6 +290,35 @@ for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ event:
   console.log(event.occurred_at, event.action);
 }
 ```
+
+## Receiving webhooks
+
+`client.webhooks` manages endpoints; `webhooks` is the receiver's half. Every
+delivery is signed twice under the endpoint's secret: `MatterWave-Signature`
+(`t=<unix>,v1=<hex>`) and the Standard Webhooks headers (`webhook-id`,
+`webhook-timestamp`, `webhook-signature`). `unwrap` accepts the delivery when
+either verifies within five minutes of the receiver's clock, and only then
+decodes the body; anything else throws `WebhookVerificationError`. It is
+WebCrypto, so it runs in Node, Deno, Workers and browsers alike.
+
+```ts
+import { WebhookVerificationError, webhooks } from "@matterwave/sdk";
+
+export async function receive(request: Request): Promise<Response> {
+  const body = await request.text(); // the raw body, not re-encoded JSON
+  try {
+    const event = await webhooks.unwrap(body, request.headers, WEBHOOK_SECRET);
+    await handle(event.type, event.data); // dedupe on event.id: delivery is at-least-once
+  } catch (error) {
+    if (error instanceof WebhookVerificationError) return new Response(null, { status: 400 });
+    throw error;
+  }
+  return new Response(null, { status: 204 });
+}
+```
+
+`verifySignature` and `verifyStandardSignature` check one scheme each; `sign`
+and `signStandard` write them, for tests and for replaying a delivery.
 
 ## Device login
 

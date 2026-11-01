@@ -163,8 +163,13 @@ export {
   EVENT_ID_HEADER,
   EVENT_TYPE_HEADER,
   SIGNATURE_TOLERANCE_S,
+  STANDARD_ID_HEADER,
+  STANDARD_TIMESTAMP_HEADER,
+  STANDARD_SIGNATURE_HEADER,
   sign as signWebhook,
+  signStandard as signStandardWebhook,
   verifySignature as verifyWebhookSignature,
+  verifyStandardSignature as verifyStandardWebhookSignature,
   unwrap as unwrapWebhook,
 } from "./webhooks.js";
 export type { Payload, HeadersLike, VerifyOptions } from "./webhooks.js";
