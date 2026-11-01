@@ -154,7 +154,7 @@ describe("webhooks signature verification", () => {
 
 // The Standard Webhooks specification's own test vector, which the platform's
 // sender is tested against too.
-const STD_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+const STD_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"; // gitleaks:allow
 const STD_ID = "msg_p5jXN8AQM9LWM0D4loKWxJek";
 const STD_T = 1614265330;
 const STD_BODY = '{"test": 2432232314}';

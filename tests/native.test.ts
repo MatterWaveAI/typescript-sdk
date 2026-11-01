@@ -139,7 +139,7 @@ describe("keys", () => {
   });
 
   it("creates with only what was given and returns the secret once", async () => {
-    const { fetch, seen } = stubFetch([json(keyBody({ key: "mw_ab12_secret", rpm_limit: 30 }), 201)]);
+    const { fetch, seen } = stubFetch([json(keyBody({ key: "mw_ab12_secret", rpm_limit: 30 }), 201)]); // gitleaks:allow
     const key = await client(fetch).keys.create({
       name: "deploy",
       scopes: ["chat:read"],
@@ -179,7 +179,7 @@ describe("keys", () => {
       json(
         keyBody({
           prefix: "mw_cd34",
-          key: "mw_cd34_secret",
+          key: "mw_cd34_secret", // gitleaks:allow
           previous_prefix: "mw_ab12",
           previous_valid_until: "2026-10-19T09:00:00+00:00",
         }),

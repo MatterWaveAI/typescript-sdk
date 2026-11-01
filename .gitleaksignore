@@ -1,0 +1,4 @@
+# Test fixtures flagged by gitleaks's generic-api-key rule, not secrets:
+# the Standard Webhooks specification's published example secret, and a made-up key.
+15d58773e1ba561d1936d314149ceee8507ead42:tests/webhooks.test.ts:generic-api-key:157
+bf6f129c22be962e1f6500f4c7ecd98109403bdc:tests/native.test.ts:generic-api-key:106
