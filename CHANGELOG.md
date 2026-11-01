@@ -113,9 +113,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     exported from the agent index.
   - `walkAsync`, `runGlobAsync` and `runGrepAsync` (`@matterwave/sdk/agent`)
     give the sync results but yield to the event loop every few
-    milliseconds; `runGrepAsync(root, pattern, { timeoutS })` runs the regex
-    on a worker thread, ends it at the deadline and rejects with the new
-    `timeout` ToolError. The sync forms are unchanged.
+    milliseconds, and stop on a `signal`: aborting it ends the walk (and
+    grep's workers) and rejects within a few milliseconds with the signal's
+    reason, or with the new `timeout` ToolError when it timed out
+    (`AbortSignal.timeout`). `runGrepAsync` hands batches of paths to two
+    worker threads kept for the search, which read the files and run the
+    regex; `timeoutS` is the regex's deadline (seconds of matching on each
+    thread, the walk and the reads not counted) and `maxDurationS` the whole
+    search's, each rejecting with `timeout`. A worker that fails to start or
+    exits partway rejects at once with `timeout`, its failure as the error's
+    `cause` (`ToolError` takes `{ cause }`). The sync forms are unchanged.
   - The `PROTECTED_LIST` and `allowed()` docs name the whole 1.1 list.
 - `toolsOf(models, modelId)` and `localAgentToolsOf(me)`: the
   `supports_tools` and `local_agent_tools` flags as `"yes"`, `"no"` or

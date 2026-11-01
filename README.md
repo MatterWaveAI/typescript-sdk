@@ -510,16 +510,31 @@ wins, so the user's own file comes last.
   a long output, `omitted` being the bytes it dropped, and gives the same text
   as the whole output would. `fill`, `checkLines` and `limit` are exported.
 - `walkAsync`, `runGlobAsync` and `runGrepAsync` give the sync results but
-  yield to the event loop every few milliseconds. `runGrepAsync(root, pattern,
-  { timeoutS: 5 })` runs the regex on a worker thread, ends it at the deadline
-  and rejects with `ToolError` (`timeout`), so a runaway pattern cannot hold
-  the extension host.
+  yield to the event loop every few milliseconds. `runGrepAsync` walks on the
+  caller's thread and hands the paths in batches to two worker threads, which
+  read the files and run the regex, so the model's pattern never runs on the
+  caller's thread. It has two time limits, each ending the workers and
+  rejecting with `ToolError` (`timeout`):
+  - `timeoutS`, the regex's deadline: the most seconds it may spend matching
+    on each worker thread, summed over that thread's files (the walk and the
+    reads do not count). It is what a runaway pattern such as `(a+)+$` runs
+    into, so give it for any pattern a model wrote.
+  - `maxDurationS`, the whole search's budget, walk and reads included.
+
+  A worker that fails to start or exits partway rejects the search at once,
+  also with `timeout` (what happened is the error's `cause`); none is started
+  again.
+- All three take a `signal`. Aborting it stops the walk, ends grep's workers
+  and rejects within a few milliseconds with the signal's reason (an
+  `AbortError` from a plain `abort()`), or with `timeout` when the signal
+  timed out (`AbortSignal.timeout`). The contract has no sentence for a search
+  the user stopped, so the client words that as it words any stop.
 
 ```ts
 import { runGrepAsync, walkAsync } from "@matterwave/sdk/agent";
 
-for await (const path of walkAsync(root)) { /* yields between directories */ }
-const text = await runGrepAsync(root, pattern, { glob: "*.ts", timeoutS: 10 });
+for await (const path of walkAsync(root, ".", { signal })) { /* yields between directories */ }
+const text = await runGrepAsync(root, pattern, { glob: "*.ts", timeoutS: 30, maxDurationS: 120, signal });
 ```
 
 The contract changes in the Python SDK: edit its `contract.json`, bump
