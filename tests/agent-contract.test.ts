@@ -93,7 +93,7 @@ describe("the agent contract", () => {
     expect(agent.DEFAULT_DENY).toEqual([".env*", "*.pem", "id_*", ".git/"]);
     expect(agent.DENY_FILE).toBe(".matterwaveignore");
     expect(agent.SEARCH_IGNORE_FILES).toEqual([".gitignore", ".matterwaveignore"]);
-    expect(agent.PROTECTED).toEqual([".matterwaveignore"]);
+    expect(agent.PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md"]);
   });
 
   it("has a prompt that says tool output is data and uses only its placeholders", () => {
@@ -112,6 +112,13 @@ describe("the agent contract", () => {
     expect(nodeAgent.CONTRACT_VERSION).toBe(agent.CONTRACT_VERSION);
     expect(typeof nodeAgent.confine).toBe("function");
     expect((agent as Record<string, unknown>).confine).toBeUndefined();
+    for (const name of ["walk", "loadSearchIgnore", "runReadFile", "runListDir", "runGlob", "runGrep"]) {
+      expect(typeof (nodeAgent as Record<string, unknown>)[name]).toBe("function");
+      expect((agent as Record<string, unknown>)[name]).toBeUndefined();
+    }
+    for (const name of ["formatReadFile", "SearchIgnore", "IgnoreFile", "refusal", "isProtected", "PROTECTED_LIST"]) {
+      expect((agent as Record<string, unknown>)[name]).toBeDefined();
+    }
   });
 
   it.skipIf(SOURCE === null)("matches its source, the Python SDK's contract.json", () => {

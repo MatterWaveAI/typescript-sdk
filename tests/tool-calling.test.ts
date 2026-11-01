@@ -8,7 +8,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ChatCompletionAccumulator,
+  localAgentToolsOf,
   toolMessage,
+  toolsOf,
   type ChatCompletion,
   type ChatCompletionChunk,
   type Message,
@@ -142,5 +144,29 @@ describe("the agent flags", () => {
     const { fetch } = stubFetch([json(body)]);
     const me = await client(fetch).me();
     expect(me.local_agent_tools ?? null).toBe(value ?? null);
+  });
+});
+
+describe("toolsOf and localAgentToolsOf", () => {
+  const rows = [
+    { id: "grt", supports_tools: true },
+    { id: "old", supports_tools: false },
+    { id: "mum", supports_tools: null },
+    { id: "bare" },
+  ];
+
+  it("reads the rows the way visionOf does", () => {
+    expect(rows.map((r) => toolsOf(rows, r.id))).toEqual(["yes", "no", "unknown", "unknown"]);
+    expect(toolsOf(rows, "missing")).toBe("unknown");
+    expect(toolsOf(rows, null)).toBe("unknown");
+    expect(toolsOf(null, "grt")).toBe("unknown");
+  });
+
+  it("says no only when the org does", () => {
+    expect(localAgentToolsOf({ local_agent_tools: false })).toBe("no");
+    expect(localAgentToolsOf({ local_agent_tools: true })).toBe("yes");
+    expect(localAgentToolsOf({ local_agent_tools: null })).toBe("unknown");
+    expect(localAgentToolsOf({})).toBe("unknown");
+    expect(localAgentToolsOf(null)).toBe("unknown");
   });
 });

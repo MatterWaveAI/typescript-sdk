@@ -23,7 +23,8 @@ export class PathRefusedError extends Error {
   }
 }
 
-function escapeRegex(c: string): string {
+/** `c` escaped for a regular expression's source. */
+export function escapeRegex(c: string): string {
   return c.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
 }
 
@@ -132,8 +133,18 @@ export class DenyList {
   }
 }
 
-/** The paths the agent can read but never write. */
+/**
+ * The protected paths as a matcher: the deny file, the agent's settings
+ * folder and the context files. They can be read; a write to one always asks
+ * the user first (`allowed(..., { path })` says `ask`), and `confine` refuses
+ * it unless `approved: true`.
+ */
 export const PROTECTED_LIST = new DenyList(PROTECTED);
+
+/** Whether `relative` (to the root, `/`-separated) is protected, so a write to it needs the user's approval in every mode. */
+export function isProtected(relative: string, options: { isDir?: boolean } = {}): boolean {
+  return PROTECTED_LIST.matches(relative, options);
+}
 
 /**
  * Absolute on any platform: a leading `/` or `\`, or a drive letter (`C:`

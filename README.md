@@ -142,7 +142,9 @@ const message = acc.message(); // and acc.finishReason, acc.usage
 defines them. Before offering an agent mode, a client reads two flags: the
 model row's `supports_tools` (`client.appModels()`) and the org's
 `local_agent_tools` (`client.me()`). Each is absent or null when the server
-did not say.
+did not say. `toolsOf(models, modelId)` and `localAgentToolsOf(me)` read them as
+`"yes"`, `"no"` or `"unknown"`, as `visionOf` does for images: only `"no"`
+should grey agent mode out.
 
 `client.embeddings.create({ input: ["one", "two"] })` returns one embedding per
 input from the deployment's embedding model; `(await client.index()).capabilities`
@@ -335,8 +337,9 @@ console.log(answer.text);
 
 The agent contract is what the MatterWave coding clients (the VS Code agent, the
 TUI's `code` mode) share: the local tools a client offers the model on `/v1`,
-the approval modes that gate them, the paths those tools may touch, and the
-agent-mode system prompt. It is versioned (`CONTRACT_VERSION`, `1.0.0`; the
+the approval modes that gate them, the paths those tools may touch, what the
+read tools and `run_shell` return, and the agent-mode system prompt. It is
+versioned (`CONTRACT_VERSION`, `1.1.0`; the
 prompt carries its own `SYSTEM_PROMPT_VERSION`). Its one source is the Python
 SDK's `contract.json`; `src/agent/contract.ts` is generated from it and must
 not be edited by hand.
@@ -344,11 +347,13 @@ not be edited by hand.
 Two entries carry it:
 
 - `import { agent } from "@matterwave/sdk"`: the contract's typed constants
-  and the pure helpers (`allowed`, `toolsForMode`, `systemPrompt`, `applyEdit`,
-  `unifiedDiff`, `DenyList`), browser-safe like the rest of the main entry.
+  and the pure helpers (`allowed`, `toolsForMode`, `systemPrompt`, `refusal`,
+  `applyEdit`, `unifiedDiff`, `DenyList`, `SearchIgnore`, the `format*`
+  output helpers), browser-safe like the rest of the main entry.
 - `import { ... } from "@matterwave/sdk/agent"`: all of that plus `confine`,
-  `loadDenyList` and `resolveLinks`, which read the filesystem and so need Node
-  (the VS Code extension host, a CLI).
+  `loadDenyList`, `resolveLinks` and the search (`walk`, `loadSearchIgnore`,
+  `runReadFile`, `runListDir`, `runGlob`, `runGrep`), which read the
+  filesystem and so need Node (the VS Code extension host, a CLI).
 
 | Tool | Kind | Arguments |
 |---|---|---|
@@ -366,6 +371,23 @@ Two entries carry it:
 | `ask` (default) | the read tools | `edit`, `write_file`, `run_shell` |
 | `auto-edit` | the read tools, `edit`, `write_file` | `run_shell` |
 | `yolo` | everything | nothing; needs a flag each session and is never saved |
+
+A client's own tools are decided by their kind (`TOOL_KINDS`), passed as
+`allowed(name, mode, kind)`; a contract tool's kind cannot be overridden, and a
+name with no kind is denied.
+
+| Kind | `plan` | `ask` | `auto-edit` | `yolo` |
+|---|---|---|---|---|
+| `read`, `meta` (todo_write, exit_plan_mode, a subagent) | allow | allow | allow | allow |
+| `write` | deny | ask | allow | allow |
+| `shell` | deny | ask | ask | allow |
+| `network` (web_fetch), `mcp` | deny; ask when `readOnly` | ask | ask | allow |
+
+A write to a protected file (`.matterwaveignore`, `.matterwave/`,
+`MATTERWAVE.md`, `MATTERWAVE.local.md`, `AGENTS.md`) asks in every mode that
+allows writes, yolo included: `allowed("edit", "auto-edit", null, { path:
+"AGENTS.md" })` is `"ask"`, and `confine(..., { write: true })` refuses it
+until the client passes `approved: true`.
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -400,10 +422,11 @@ or throws `PathRefusedError` (with a `reason` and the sentence to hand back to
 the model) before anything is read or written: for a `..` segment, an absolute
 path outside the root, a link that leads out of the root (symbolic links, and
 junctions on Windows), a path on the deny list, by its own name or its
-target's, or a write to a protected path. The deny list is `.env*`, `*.pem`,
-`id_*` and `.git/` plus the lines of the workspace's `.matterwaveignore`, and it
-applies to reads too, so those files are never sent to the model;
-`.matterwaveignore` itself can be read but not written. Confinement is not a
+target's, or an unapproved write to a protected path. The deny list is `.env*`,
+`*.pem`, `id_*` and `.git/` plus the lines of the workspace's
+`.matterwaveignore`, and it applies to reads too, so those files are never sent
+to the model; the protected files can be read, and written only with the
+user's approval (`PROTECTED_LIST`, `isProtected`). Confinement is not a
 sandbox: `run_shell` reaches whatever the user can, which is why it asks.
 
 `applyEdit` is `edit`'s exact replace on text (`EditError` when the string is
@@ -412,6 +435,54 @@ CRLF file), and `unifiedDiff` prints the diff an approval shows. Both are line
 for line ports of the Python SDK's, and the two suites run the same conformance
 cases (`tests/agent-conformance.json`, generated from the Python SDK's), so the
 two clients refuse, edit and print alike.
+
+### Search, tool output, refusals and the prompt's slots (1.1)
+
+The read tools run the same way in every client:
+
+```ts
+import { runGlob, runGrep, runListDir, runReadFile, walk } from "@matterwave/sdk/agent";
+
+runReadFile(root, "src/app.ts", { startLine: 40, endLine: 80 }); // numbered lines, cut at the read limits
+runListDir(root, "src");                         // directories first, ignored entries left out
+runGlob(root, "*.ts", { path: "src" });          // a pattern with no / matches names at any depth
+runGrep(root, "TODO", { glob: "*.ts", ignoreCase: true }); // "path:line: text"
+for (const path of walk(root)) { /* what glob and grep see */ }
+```
+
+Each returns the tool's text, or throws `PathRefusedError` or `ToolError`
+(whose `message` is the contract's sentence, sent back with the error flag).
+The walk reads `.gitignore` and `.matterwaveignore` in every directory from the
+root down (nesting, `!`, a trailing `/`, anchoring, `**`, escapes, case
+ignored) and applies the deny list on top; `SearchIgnore` and `IgnoreFile` are
+the matcher on its own, fed by any reader, for a client that lists files
+another way (a webview over a Rust host, say). For a client that reads files
+itself, `formatReadFile`, `formatListDir`, `formatGlob`, `formatGrep` and
+`formatShell` turn its results into the same text. The formats, markers and
+messages are `OUTPUTS`, and the cases every client must reproduce are in the
+contract itself (`CONTRACT.conformance`: a workspace tree, tool calls with
+their expected text, ignore verdicts and run_shell results).
+
+`refusal(code, { tool, mode, path })` words every refusal a client sends:
+`mode` (denied by the mode), `unknown_tool`, `rejected` (sent as an ordinary
+result, not an error), `headless`, `needs_approval` (a protected file), and the
+confinement codes (`outside`, `denied`, ...).
+
+`systemPrompt` takes two optional slots, and renders exactly as before without
+them:
+
+```ts
+systemPrompt("ask", root, {
+  extraTools: [{ name: "web_fetch", kind: "network", description: "Fetch a URL and return its text." }],
+  contextFiles: [{ path: "AGENTS.md", content: text, trusted: true }],
+});
+```
+
+Extra tools join the tool list and get a one-line description each; trusted
+context files follow as "Project instructions", each fenced between
+`<project-instructions path="...">` lines that its own text cannot close, and
+an untrusted file is left out. `toolsForMode(mode, extra)` adds the same
+`ExtraTool`s to the `tools` the mode offers.
 
 The contract changes in the Python SDK: edit its `contract.json`, bump
 `contract_version`, and run its `scripts/gen_agent_contract.py` with this repo

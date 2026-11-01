@@ -40,6 +40,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `applyEdit` and `unifiedDiff` are the `agent` namespace of the main
   entry; the new `@matterwave/sdk/agent` entry (Node only) adds `confine`,
   `loadDenyList` and `resolveLinks`.
+- Agent contract `1.1.0`, regenerated from the Python SDK, all additions
+  (every 1.0.0 name and default behaviour is unchanged):
+  - The search rules: `IgnoreFile` and `SearchIgnore` (browser-safe; nested
+    `.gitignore` and `.matterwaveignore` files, `!`, directory-only and
+    anchored patterns, `**`, escapes, case ignored, the deny list on top),
+    and in `@matterwave/sdk/agent` the walker `walk(root, path)` and
+    `loadSearchIgnore(root)`.
+  - The read tools' output as the contract spells it (`OUTPUTS`,
+    `TOOL_ERRORS`, `ToolError`): `runReadFile`, `runListDir`, `runGlob` and
+    `runGrep` in `@matterwave/sdk/agent`, and the browser-safe
+    `formatReadFile`, `formatListDir`, `formatGlob`, `formatGrep` and
+    `formatShell` for a client that reads files or runs commands itself.
+    The contract carries their conformance cases (`CONTRACT.conformance`).
+  - Tool kinds beyond the seven: `network`, `mcp` and `meta`
+    (`TOOL_KINDS`, `KIND_DECISIONS`, `READ_ONLY_DECISIONS`, `ExtraTool`).
+    `allowed(tool, mode, kind, { readOnly, path })` decides a client's own
+    tool by its kind, and `toolsForMode(mode, extra)` offers them.
+  - `refusal(code, values)` and `APPROVAL_REFUSALS`: the wording for a tool
+    the mode denies, an unknown tool, a call the user rejected, a call a
+    headless run cannot ask about, and a protected file without approval.
+  - `systemPrompt(mode, root, { extraTools, contextFiles })`
+    (`ContextFile`): a "More tools" section and a fenced "Project
+    instructions" section for trusted context files; without them the
+    prompt is unchanged.
+  - `PROTECTED` adds `.matterwave/`, `MATTERWAVE.md`, `MATTERWAVE.local.md`
+    and `AGENTS.md` (`SETTINGS_DIR`, `CONTEXT_FILES`); a write to any of them
+    asks in every mode that allows writes (`allowed(..., { path })`,
+    `isProtected`), and `confine(..., { write: true, approved: true })` lets
+    an approved one through. `PROTECTED_LIST` and `EDIT_CRLF_FALLBACK` are
+    exported from the agent index.
+  - New limits: `read_max_file_bytes`, `grep_max_file_bytes` and
+    `binary_sniff_bytes`.
+- `toolsOf(models, modelId)` and `localAgentToolsOf(me)`: the
+  `supports_tools` and `local_agent_tools` flags as `"yes"`, `"no"` or
+  `"unknown"` (`ToolsVerdict`), as `visionOf` reads `supports_vision`.
 - `tests/agent-conformance.json`, the conformance cases both SDKs' suites
   run, and `tests/agent-contract.test.ts`, which recomputes the copy's
   SHA-256 and compares it with the source when the Python SDK is beside
@@ -53,6 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
+- The agent contract's `list_dir` and `glob` descriptions say what is left
+  out (ignored and denied entries; protected ones are listed) and that a
+  pattern with no `/` matches names at any depth.
 
 ## [0.5.0] - 2026-10-31
 
