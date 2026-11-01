@@ -1,7 +1,9 @@
 # Publish @matterwave/sdk to npm. Tag a release (`v0.2.1`) or run it by
 # hand; the job checks, tests and builds before publishing with `--provenance`
 # and OIDC trusted publishing -- the token comes from `NODE_AUTH_TOKEN` in
-# the npm environment's secrets.
+# the npm environment's secrets. A tag must name the version in
+# package.json, and a tag's run ends with a GitHub release carrying its
+# CHANGELOG section, the packed tarball and a CycloneDX SBOM.
 name: publish-npm
 
 on:
@@ -25,6 +27,11 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org/
+      - name: The tag names the package version
+        if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release.mjs check-tag "$TAG"
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -32,6 +39,41 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm attw
+      - name: CycloneDX SBOM of what the package installs
+        run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
+      - name: Release notes from the CHANGELOG
+        run: node scripts/release.mjs notes > notes.md
+      - name: Pack the tarball the release attaches
+        run: mkdir -p dist-pack && npm pack --pack-destination dist-pack
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: |
+            dist-pack/
+            sbom.cdx.json
+            notes.md
+
+  # The tag's GitHub release: its CHANGELOG section as the notes, with the
+  # built files and the SBOM attached. Only a tag has a release; a manual
+  # run publishes nothing here.
+  release:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: release/
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+            --notes-file release/notes.md release/dist-pack/* release/sbom.cdx.json
