@@ -61,6 +61,25 @@ const DEVICE_ERRORS = new Set(["authorization_pending", "slow_down", "expired_to
 const SLOW_DOWN_STEP_S = 5;
 
 /**
+ * Every page of a cursor-paginated list, first to last: `fetch(undefined)`
+ * is the first page and `fetch(cursor)` each later one, until a page's
+ * `next_cursor` is null. Each page is fetched only when the previous one
+ * has been consumed, so stopping early fetches nothing more.
+ *
+ *     for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ cursor })))) { ... }
+ */
+export async function* pagesOf<Page extends { next_cursor?: string | null }>(
+  fetch: (cursor: string | undefined) => Promise<Page>,
+): AsyncGenerator<Page> {
+  let cursor: string | undefined;
+  do {
+    const page = await fetch(cursor);
+    yield page;
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor !== undefined);
+}
+
+/**
  * Every item of every page: the generic item-level paginator over any
  * cursor-paginated list the API returns (`{ data, next_cursor }`). `pages`
  * is the page-level walk; this is the one the caller usually wants.
@@ -256,16 +275,11 @@ export class Conversations {
   }
 
   /** Every page of `list`, first to last, each fetched as the previous one is consumed. */
-  async *pages(
+  pages(
     params: Omit<ListConversationsParams, "cursor"> = {},
     options: RequestOptions = {},
   ): AsyncGenerator<WithRequestId<ConversationList>> {
-    let cursor: string | undefined;
-    do {
-      const page = await this.list({ ...params, cursor }, options);
-      yield page;
-      cursor = page.next_cursor ?? undefined;
-    } while (cursor !== undefined);
+    return pagesOf((cursor) => this.list({ ...params, cursor }, options));
   }
 
   /** Every conversation of every page, one at a time: the item-level paginator, walking `pages` so each page is fetched only as the previous one runs dry. */

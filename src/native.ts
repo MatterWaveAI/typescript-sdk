@@ -25,8 +25,8 @@
 
 import { MatterWaveConfigError } from "./client.js";
 import type { MatterWave, Prepared, RequestOptions } from "./client.js";
-import type { Conversation, SearchResults } from "./conversation-types.js";
-import { query, segment } from "./conversations.js";
+import type { Conversation, SearchHit, SearchResults } from "./conversation-types.js";
+import { itemsOf, pagesOf, query, segment } from "./conversations.js";
 import type {
   AdminAnnouncement,
   AdminAnnouncementList,
@@ -37,6 +37,7 @@ import type {
   Attachment,
   AttachmentLimits,
   AuditFilters,
+  AuditEvent,
   AuditListParams,
   AuditPage,
   Budget,
@@ -231,6 +232,19 @@ export class Audit extends Resource {
     );
   }
 
+  /** Every page of `list` under the same filters, first to last, each fetched as the previous one is consumed. */
+  pages(
+    params: Omit<AuditListParams, "cursor"> = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<WithRequestId<AuditPage>> {
+    return pagesOf((cursor) => this.list({ ...params, cursor }, options));
+  }
+
+  /** Every matching event, newest first, one at a time across the pages. */
+  items(params: Omit<AuditListParams, "cursor"> = {}, options: RequestOptions = {}): AsyncGenerator<AuditEvent> {
+    return itemsOf(this.pages(params, options));
+  }
+
   /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). */
   exportCsv(params: AuditFilters = {}, options: RequestOptions = {}): Promise<string> {
     return this.client.text(
@@ -388,6 +402,20 @@ export class LibraryClient extends Resource {
   /** `GET /api/search`: titles and messages, ranked, a page at a time. */
   search(q: string, params: LibrarySearchParams = {}, options: RequestOptions = {}): Promise<WithRequestId<SearchResults>> {
     return this.call("GET", `/api/search${query({ q, cursor: params.cursor, limit: params.limit })}`, undefined, options);
+  }
+
+  /** Every page of `search` for `q`, best match first, each fetched as the previous one is consumed. */
+  searchPages(
+    q: string,
+    params: Omit<LibrarySearchParams, "cursor"> = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<WithRequestId<SearchResults>> {
+    return pagesOf((cursor) => this.search(q, { ...params, cursor }, options));
+  }
+
+  /** Every hit for `q`, one at a time across the pages. */
+  searchItems(q: string, params: Omit<LibrarySearchParams, "cursor"> = {}, options: RequestOptions = {}): AsyncGenerator<SearchHit> {
+    return itemsOf(this.searchPages(q, params, options));
   }
 
   createFolder(name: string, options: RequestOptions = {}): Promise<WithRequestId<Folder>> {

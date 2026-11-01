@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Page and item iterators for every cursor-paged list: `audit.pages()` /
+  `audit.items()` (the same filters as `audit.list`) and
+  `library.searchPages(q)` / `library.searchItems(q)`. `pagesOf(fetch)` is
+  the page walk they share, exported beside `itemsOf` for any list
+  answering `{ data, next_cursor }`; `conversations.pages()` uses it too.
 - `frequency_penalty` and `presence_penalty` on `chat.completions.create`,
   relayed to the model as OpenAI defines them (-2 to 2), and in
   `CHAT_COMPLETION_REQUEST_FIELDS`.

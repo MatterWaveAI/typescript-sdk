@@ -179,7 +179,8 @@ console.log(stream.result?.id); // the saved assistant message
 ```
 
 `list({ filter, limit, cursor })` is one page of the sidebar (`next_cursor`
-on the result; `pages()` is an async iterator over them all), and `search(q)`,
+on the result; `pages()` is an async iterator over them all and `items()` over
+every conversation of every page), and `search(q)`,
 `get(id, { full })`, `tree(id)`, `setActiveLeaf(id, messageId)`, `fork(id,
 messageId)`, `edit(id, messageId, { content })` and `regenerate(id, messageId)`
 cover the rest of the sidebar and the branch switcher; `update(id, { title,
@@ -244,6 +245,7 @@ const bytes = await client.attachments.download(await client.attachments.get(doc
 const folder = await client.library.createFolder("Work");
 await client.library.move(conversationId, folder.id);
 const page = await client.library.search("invoice", { limit: 20 });
+for await (const hit of client.library.searchItems("invoice")) console.log(hit.title, hit.snippet);
 
 // Shares: the token is on create only; view needs no key.
 const link = await client.shares.create(conversationId, { expires_in_s: 7 * 86400 });
@@ -266,12 +268,26 @@ if (plan.writes_blocked) console.warn(plan.read_only_reason);
 `exportCsv`. `webhooks`: `list`, `create`, `get`, `update`, `delete`,
 `rotateSecret`, `test`, `deliveries`, `redeliver`. `attachments`: `upload`,
 `get`, `delete`, `download`, `limits`. `library`: `get`, `search`,
-`createFolder`, `updateFolder`, `deleteFolder`, `move`, `createTag`,
+`searchPages`, `searchItems`, `createFolder`, `updateFolder`, `deleteFolder`, `move`, `createTag`,
 `deleteTag`, `setTags`. `shares`: `create`, `list`, `listMine`, `revoke`,
 `view`. `notifications`: `list`, `read`, `readAll`. `announcements`: `list`.
 `entitlements`: `get`. `conversations` gains `report(id, kind, { message_id?,
 note? })`: `kind` is `unsafe` or `unhelpful`. A delete or revoke resolves to
 `undefined`; a missing id is a `NotFoundError`.
+
+Every cursor-paged list has a page iterator and an item iterator beside it:
+`conversations.pages` / `items`, `audit.pages` / `items` and
+`library.searchPages` / `searchItems`, each fetching the next page only when
+the previous one has been consumed. `pagesOf(fetch)` and `itemsOf(pages)` are
+the walk they share, for any list that answers `{ data, next_cursor }`:
+
+```ts
+import { itemsOf, pagesOf } from "@matterwave/sdk";
+
+for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ event: "org.sso", cursor })))) {
+  console.log(event.occurred_at, event.action);
+}
+```
 
 ## Device login
 
