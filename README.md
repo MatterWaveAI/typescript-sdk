@@ -456,6 +456,9 @@ npm install
 npm run typecheck && npm run lint && npm test && npm run build
 ```
 
+`pre-commit install` once per clone runs gitleaks on every commit, the same
+secret scan CI runs over the whole history.
+
 `tests/openapi-contract.test.ts` checks this client against the app's
 exported OpenAPI document, `docs/developers/openapi.json` in the app repo,
 through the snapshot in `tests/openapi.json`, so a new operation on the API
