@@ -291,6 +291,46 @@ for await (const event of itemsOf(pagesOf((cursor) => client.audit.list({ event:
 }
 ```
 
+## Your account and your data
+
+The caller's own account, with a key (as its owner) or a person's token:
+
+```ts
+await client.account.update({ full_name: "Ada Lovelace" });
+await client.account.acceptTerms("2026-10");          // a version other than the current one is a 422
+const held = await client.account.enforcement();      // state "none", or the warning or limit and why
+await client.preferences.update({ product_updates: true }); // reads, changes what was given, writes back
+for (const session of (await client.sessions.list()).sessions) console.log(session.user_agent, session.last_seen_at);
+await client.sessions.revokeOthers();
+
+// Everything the account holds, as one JSON document (needs chat:read).
+const document = await client.exports.createAndDownload({ timeoutMs: 600_000 });
+
+// Conversations from ChatGPT's or Claude's data export (needs chat:write).
+const job = await client.imports.create({ file: exportFile, filename: "conversations.json" });
+console.log((await client.imports.wait(job.id)).conversations_created);
+
+const said = await client.speech.transcribe({ file: clip, filename: "note.ogg", language: "en" });
+await client.attachments.scan(attachmentId);          // poll until scan_status is "clean"
+const data = await client.attachments.view(attachmentId); // the bytes, through the signed link the route mints
+
+const status = await client.billing.status();         // the plan, its limits, and dunning when late
+const catalog = await new MatterWave({ apiKey: null }).plans.list(); // public: the price list and model prices
+```
+
+`account`: `update`, `acceptTerms`, `enforcement`. `preferences`: `get`,
+`update` (the route replaces the whole object, so `update` reads it first; a
+key not given keeps its value, `locale: null` clears the locale, and billing
+receipts cannot be turned off). `sessions`: `list` (a session's `id` is the
+cookie's own value, a secret to keep out of logs), `revoke`, `revokeOthers`.
+`exports`: `create`, `get`, `wait`, `download`, `createAndDownload`, and
+`document`, which builds the export inside the request; a ready export's
+`download_url` is a secret too. `imports`: `create`, `list`, `get`, `wait`.
+`speech.transcribe`, `attachments.scan` / `view`, `billing.status`,
+`plans.list` and `policy.stats` (the last two public, sent with no
+credential). `wait` throws `MatterWaveError` when the job failed or expired
+and `APITimeoutError` when `timeoutMs` passes first.
+
 ## Receiving webhooks
 
 `client.webhooks` manages endpoints; `webhooks` is the receiver's half. Every
@@ -386,10 +426,10 @@ platform's route document (the drift test holds the two together):
 
 | `CREDENTIALS` | Accepts | Methods |
 | --- | --- | --- |
-| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view` |
-| `key` | any API key, or a person's token | `me`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get` |
-| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, the conversation reads, `messages.listFeedback`, `shares.list` |
-| `key:chat:write` | a key with `chat:write`, or a person's token | `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
+| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view`, `plans.list`, `policy.stats` |
+| `key` | any API key, or a person's token | `me`, `account`, `preferences`, `sessions`, `speech`, `billing.status`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get` |
+| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, `exports`, the conversation reads, `messages.listFeedback`, `shares.list` |
+| `key:chat:write` | a key with `chat:write`, or a person's token | `imports`, `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
 | `key:keys:manage` | a key with `keys:manage`, or a person's token | `keys.create` / `update` / `rotate` / `revoke` |
 | `key:usage:read` | a key with `usage:read`, or a person's token | `usage.org`, `usage.exportCsv` |
 | `key:webhooks:manage` | a key with `webhooks:manage`, or a person's token | `webhooks` |

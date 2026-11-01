@@ -15,10 +15,13 @@
  * operation needs. `client.keys`, `client.usage`, `client.webhooks`,
  * `client.attachments`, `client.library`, `client.shares`, `client.budget`,
  * `client.notifications`, `client.announcements` and `client.entitlements`
- * are the app's native routes for the same, `client.admin` is the operator
- * surface (the platform `admin` role, not an API key's), and `client.mcp`
- * speaks the `/mcp` JSON-RPC endpoint (list tools, call one, send a
- * message).
+ * are the app's native routes for the same, `client.account`,
+ * `client.preferences`, `client.sessions`, `client.exports`,
+ * `client.imports`, `client.speech` and `client.billing` the caller's own
+ * account and data, `client.plans` and `client.policy` the public figures,
+ * `client.admin` is the operator surface (the platform `admin` role, not an
+ * API key's), and `client.mcp` speaks the `/mcp` JSON-RPC endpoint (list
+ * tools, call one, send a message).
  *
  * @module @matterwave/sdk
  */
@@ -110,6 +113,39 @@ export type {
   WebhookEndpointWithSecret,
   EntitlementLimits,
 } from "./native-types.js";
+export { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
+export type {
+  AccountExport,
+  AttachmentScan,
+  BillingStatus,
+  CreateImportParams,
+  Dunning,
+  DunningLimits,
+  DunningSchedule,
+  DunningStep,
+  EmailPreferences,
+  Enforcement,
+  EnforcementLimit,
+  ImportJob,
+  ImportJobList,
+  ModelPrice,
+  NotificationPreferences,
+  Plan,
+  PlanCatalog,
+  PolicyStats,
+  Preferences,
+  RevokedSession,
+  RevokedSessions,
+  Session,
+  SessionList,
+  TermsAcceptance,
+  TranscribeParams,
+  Transcription,
+  UpdateAccountParams,
+  UpdatePreferencesParams,
+  UpdatedName,
+  WaitOptions,
+} from "./account-types.js";
 export type {
   AppModel,
   AppModelList,

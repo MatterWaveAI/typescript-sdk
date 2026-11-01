@@ -28,6 +28,7 @@
 
 import { MatterWaveConfigError } from "./client.js";
 import type { MatterWave, Prepared, RequestOptions } from "./client.js";
+import type { AttachmentScan } from "./account-types.js";
 import type { Conversation, SearchHit, SearchResults } from "./conversation-types.js";
 import { itemsOf, pagesOf, query, segment } from "./conversations.js";
 import type {
@@ -97,7 +98,8 @@ function present(body: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== null));
 }
 
-abstract class Resource {
+/** @internal One namespace of routes on the client: `call` for a JSON answer, `none` for one with nothing to read. */
+export abstract class Resource {
   constructor(protected readonly client: MatterWave) {}
 
   protected call<T extends object>(
@@ -385,6 +387,34 @@ export class Attachments extends Resource {
   /** What the caller may still upload. */
   limits(options: RequestOptions = {}): Promise<WithRequestId<AttachmentLimits>> {
     return this.call("GET", "/api/attachments/limits/me", undefined, options);
+  }
+
+  /**
+   * `GET /api/attachments/{id}/scan`: where the malware scan is, the cheap
+   * read to poll after an upload until it is `clean`.
+   */
+  scan(attachmentId: string, options: RequestOptions = {}): Promise<WithRequestId<AttachmentScan>> {
+    return this.call("GET", attachmentPath(attachmentId, "/scan"), undefined, options);
+  }
+
+  /**
+   * The file's bytes by id: the route answers with a redirect to a
+   * ten-minute signed link on the same origin, which fetch follows with the
+   * client's credential, the one the link is bound to. `NotFoundError` until
+   * the file has scanned clean.
+   */
+  view(attachmentId: string, options: RequestOptions = {}): Promise<ArrayBuffer> {
+    return this.client.bytes(
+      {
+        method: "GET",
+        path: attachmentPath(attachmentId, "/view"),
+        body: undefined,
+        keyed: true,
+        stream: false,
+        headers: { Accept: "*/*" },
+      },
+      options,
+    );
   }
 }
 

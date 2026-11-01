@@ -32,6 +32,7 @@ import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
@@ -594,6 +595,24 @@ export class MatterWave {
   readonly admin: Admin;
   /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
   readonly mcp: Mcp;
+  /** The caller's own account: their name, the terms they accepted, and whether moderation holds them. */
+  readonly account: Account;
+  /** The mail the caller gets, their notices and their locale. */
+  readonly preferences: PreferencesClient;
+  /** The browsers signed in as the caller: list them, sign one out, or all the others. */
+  readonly sessions: Sessions;
+  /** Everything the account holds, as one JSON document. */
+  readonly exports: Exports;
+  /** Conversations brought over from ChatGPT's or Claude's data export. */
+  readonly imports: Imports;
+  /** Dictation: the words in an audio clip. */
+  readonly speech: Speech;
+  /** The org's billing as any member sees it: the plan, how it pays, and dunning when it is late. */
+  readonly billing: Billing;
+  /** The public price list, read with no credential. */
+  readonly plans: Plans;
+  /** The public policy page's counts, read with no credential. */
+  readonly policy: Policy;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -647,6 +666,15 @@ export class MatterWave {
     this.entitlements = new EntitlementsClient(this);
     this.admin = new Admin(this);
     this.mcp = new Mcp(this);
+    this.account = new Account(this);
+    this.preferences = new PreferencesClient(this);
+    this.sessions = new Sessions(this);
+    this.exports = new Exports(this);
+    this.imports = new Imports(this);
+    this.speech = new Speech(this);
+    this.billing = new Billing(this);
+    this.plans = new Plans(this);
+    this.policy = new Policy(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

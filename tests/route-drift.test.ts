@@ -127,9 +127,13 @@ describe("the route table against the platform's route document", () => {
     for (const [name, route] of sdkRoutes()) {
       const [method, path] = route.split(" ");
       const operation = DOCUMENT.paths[path!]?.[method!.toLowerCase()];
-      // The internal routes the SDK calls are the operator console's, which
-      // take the operator's own session or token.
-      const expected = operation ? credentialOf(operation.security) : "person";
+      let expected: string;
+      if (operation) expected = credentialOf(operation.security);
+      // The operator console's routes take the operator's own session or token.
+      else if (name.startsWith("admin.")) expected = "person";
+      // The other internal routes the SDK calls (the enforcement banner, the
+      // public policy counts) are not in the document to compare.
+      else continue;
       const named = (CREDENTIALS as Record<string, string>)[name];
       if (named !== expected) wrong[name] = [named, expected];
     }

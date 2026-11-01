@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The account and data routes a key reaches: `account` (`update`,
+  `acceptTerms`, `enforcement`), `preferences` (`get`, `update`, which reads
+  the object, lays the changes over it and writes it back, since the route
+  replaces it), `sessions` (`list`, `revoke`, `revokeOthers`), `exports`
+  (`create`, `get`, `wait`, `download`, `createAndDownload`, `document`),
+  `imports` (`create`, `list`, `get`, `wait`), `speech.transcribe`,
+  `attachments.scan` / `view` (`view` follows the route's same-origin signed
+  redirect to the bytes), `billing.status`, and the public `plans.list` and
+  `policy.stats`, sent with no credential. `APP_OPERATIONS` and
+  `CREDENTIALS` name each route; their wire types are exported.
 - Examples, each run by `tests/examples.test.ts` against a stubbed fetch:
   `chat`, `streaming`, `structured-output`, `webhook-receiver`,
   `device-sign-in` (an API key or a person's token) and `pagination`.
