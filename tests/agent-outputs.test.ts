@@ -586,7 +586,7 @@ describe("links", () => {
   });
 });
 
-// --- 1.1.1 fixes -----------------------------------------------------------------
+// --- 1.2.0 fixes -----------------------------------------------------------------
 
 function reasonOf(call: () => unknown): string | undefined {
   try {
@@ -597,7 +597,7 @@ function reasonOf(call: () => unknown): string | undefined {
   return undefined;
 }
 
-describe("1.1.1 fixes", () => {
+describe("1.2.0 fixes", () => {
   it.each(CONFORMANCE.alias_roots.map((c) => [`${JSON.stringify(c.path)} in ${JSON.stringify(c.root)}`, c] as const))(
     "checks only the names below the root: %s",
     (_, c) => {

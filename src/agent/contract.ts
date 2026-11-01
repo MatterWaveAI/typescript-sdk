@@ -3,11 +3,11 @@
 // Do not edit: change the JSON there and regenerate.
 
 /** SHA-256 of the contract's canonical JSON; tests/agent-contract.test.ts recomputes it. */
-export const CONTRACT_SHA256 = "87be6d8941d81f345750c70430f8a8b80407c2afceafef360d660b0c0fa92868";
+export const CONTRACT_SHA256 = "86240640559d7c90e3a88f4ea18e39b09a070a542f7999ca4c6d7ffac138dc76";
 
 /** The agent tool contract, as decoded from contract.json. */
 export const CONTRACT = {
-  "contract_version": "1.1.1",
+  "contract_version": "1.2.0",
   "about": "The MatterWave agent tool contract: the local tools a coding client offers the model, the approval modes that gate them, the paths they may touch and the agent-mode system prompt, the text the read tools and run_shell return, and the conformance cases every client must reproduce. This file is the one source; the TypeScript SDK's copy is generated from it by scripts/gen_agent_contract.py. Versioning: major when a tool, field or mode is removed or changes meaning, minor when one is added, patch when only text changes.",
   "tools": [
     {

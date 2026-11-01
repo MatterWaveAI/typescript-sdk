@@ -3,7 +3,7 @@
  * browser-safe. The main entry re-exports this as the `agent` namespace:
  *
  *     import { agent } from "@matterwave/sdk";
- *     agent.CONTRACT_VERSION;                  // "1.1.1"
+ *     agent.CONTRACT_VERSION;                  // "1.2.0"
  *     const tools = agent.toolsForMode("plan"); // the `tools` for /v1: read-only
  *     agent.allowed("edit", "ask");            // "ask"
  *     agent.allowed("web_fetch", "ask", "network");            // "ask": a client's own tool, by kind
