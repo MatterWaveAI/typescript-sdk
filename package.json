@@ -61,7 +61,9 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "VERSIONING.md"
   ],
   "sideEffects": false,
   "engines": {

@@ -36,6 +36,8 @@ import { Auth, Conversations, Instructions, Messages } from "./conversations.js"
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
 import { sseDataFrames } from "./sse.js";
+import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
+import type { LogLevel, Logger } from "./log.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
   ApiIndex,
@@ -151,6 +153,14 @@ export interface ClientOptions {
    * for exactly that page, say. Without a key the client runs anywhere.
    */
   dangerouslyAllowBrowser?: boolean;
+  /**
+   * `info` logs a line per response or failure (method, path, status,
+   * request id, time); `debug` adds each attempt and each retry's wait.
+   * Never a body or a header. Defaults to `MATTERWAVE_LOG`, else `off`.
+   */
+  logLevel?: LogLevel;
+  /** Where the log lines and deprecation warnings go; the console by default. */
+  logger?: Logger;
   /** The request about to go out, for logging: method and path, once per attempt (a retry fires it again). A hook that throws fails the call. */
   onRequest?: (request: { method: string; path: string }) => void;
   /** The response that came back, success or refusal, once per attempt. A hook that throws fails the call. */
@@ -709,6 +719,7 @@ export class MatterWave {
   private readonly onRequest: ((request: { method: string; path: string }) => void) | null;
   private readonly onResponse: ((response: RawResponse) => void) | null;
   private readonly allowBrowser: boolean;
+  private readonly log: RequestLog;
 
   constructor(options: ClientOptions = {}) {
     this.apiKey = options.apiKey ?? envValue(API_KEY_ENV);
@@ -731,6 +742,7 @@ export class MatterWave {
     this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
     this.onRequest = options.onRequest ?? null;
     this.onResponse = options.onResponse ?? null;
+    this.log = new RequestLog(options.logLevel ?? logLevelOf(envValue(LOG_ENV)), options.logger ?? console);
     this.chat = new Chat(this);
     this.models = new Models(this);
     this.embeddings = new Embeddings(this);
@@ -778,6 +790,8 @@ export class MatterWave {
       defaultHeaders: { ...this.defaultHeaders, ...(overrides.defaultHeaders ?? {}) },
       fetch: this.fetchImpl,
       dangerouslyAllowBrowser: this.allowBrowser,
+      logLevel: this.log.level,
+      logger: this.log.logger,
       onRequest: this.onRequest ?? undefined,
       onResponse: this.onResponse ?? undefined,
     });
@@ -893,6 +907,8 @@ export class MatterWave {
       if (this.onRequest) this.onRequest({ method: prepared.method, path: prepared.path });
       const controller = new AbortController();
       const stop = linkSignals(controller, options.signal, timeoutMs);
+      this.log.attempt(prepared.method, prepared.path, attempt);
+      const since = this.log.started();
       let response: Response;
       try {
         response = await this.fetchImpl(url, {
@@ -903,6 +919,7 @@ export class MatterWave {
         });
       } catch (cause) {
         stop.clear();
+        this.log.failure(prepared.method, prepared.path, cause, since);
         if (options.signal?.aborted) throw cause;
         // Our own timeout fired after the request may have gone out, so only
         // a refused connection proves a write never arrived.
@@ -915,9 +932,13 @@ export class MatterWave {
                 { cause },
               );
         }
-        await pause(backoffMs(attempt, null), options.signal);
+        const wait = backoffMs(attempt, null);
+        this.log.retry(prepared.method, prepared.path, wait, attempt);
+        await pause(wait, options.signal);
         continue;
       }
+      this.log.response(prepared.method, prepared.path, response, since);
+      this.log.deprecated(prepared.method, prepared.path, response.headers);
       if (response.ok) {
         // The timeout covers the connection phase only: a streamed body
         // outlives this call, and a long answer must not be cut by it.
@@ -932,6 +953,7 @@ export class MatterWave {
       if (this.onResponse) this.onResponse(this._lastResponse);
       const delay = backoffMs(attempt, retryAfterSeconds(response));
       if (attempt < maxRetries && delay <= maxRetryWaitMs && shouldRetry(response, raw, repeatable)) {
+        this.log.retry(prepared.method, prepared.path, delay, attempt);
         await pause(delay, options.signal);
         continue;
       }
