@@ -217,7 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `client.account` — the person's own account, the writes the Account and
-  Preferences panes make (T-207): `rename({ full_name })`
+  Preferences panes make: `rename({ full_name })`
   (`PATCH /api/me`), `acceptTerms({ version })`, `completeOnboarding()`,
   `changePassword({ current_password, new_password })`
   (`POST /api/me/password`; every other session ends with it),
@@ -236,7 +236,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactional mail the server refuses to switch off, and now so is the
   type.
 - `client.exports` and `client.imports` — the account export and history
-  import as jobs (T-208): `exports.start()` (`POST /api/me/export`, 202),
+  import as jobs: `exports.start()` (`POST /api/me/export`, 202),
   `exports.get(id)` with a fresh signed `download_url` once ready,
   `exports.download(job | url)` for the bytes behind the signed link, and
   `imports.start({ file, filename })` (multipart, at most 100 MiB),
@@ -244,7 +244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (409 while one does); `ExportJob`, `ExportJobStatus`, `ImportJob` and
   `ImportJobList` spell the rows, progress counts and errors as the worker
   moves them.
-- `client.members` — the team management family (T-209): `list()` (every
+- `client.members` — the team management family: `list()` (every
   member, the caller's own role, the seats), `setRole(subject, { role })`,
   `transferOwnership(subject)` (one step: target becomes owner, caller
   admin), `remove(subject)` (leaving is removing yourself), the mailed
@@ -261,7 +261,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method is in the doc comments.
 - `OrgMember`, `MemberList`, `OrgInvite`, `InviteLinkRow`,
   `CreatedInviteLink`, `InvitePreview`, `JoinPreview` and `OrgRole` types.
-- `client.org` — the org management family (T-226): `get()` and
+- `client.org` — the org management family: `get()` and
   `rename({ name })`, `close({ confirm })` (the org's name typed exactly;
   danger documented; owner only and idempotent), the model allow-list --
   `models()` and `setModels({ allowed: string[] | null })` (the house
@@ -282,7 +282,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OrgProfile`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
   `SsoSettings`, `RecoveryCode`, `DnsChallenge`, `DomainVerification`,
   `OrgDomainRow`, `OrgIdpRow` and `AttachIdpParams` types.
-- `client.billing` — plans and billing (T-227): `plans()` (`GET /api/plans`,
+- `client.billing` — plans and billing: `plans()` (`GET /api/plans`,
   the public catalog, cheapest first, with the price table and the house
   model; no key needed), `switchPlan({ plan, reason? })` (`PUT /api/plan`,
   the move to Free -- a paid code is the server's 402 pointing at
@@ -295,14 +295,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Plan`, `PlanCatalog`, `PlanEvent`, `Invoice`, `BillingStatus`,
   `DunningState` and `Collection` types.
 - `client.passkeys` — passkeys, WebAuthn relayed through the identity
-  provider (T-228): `list()`, `startRegistration()`,
+  provider: `list()`, `startRegistration()`,
   `verifyRegistration(id, { credential, name })`, `rename(id, { name })`,
   `remove(id)` for the signed-in, and the sign-in ceremony --
   `startLogin({ email, auth_request })` and
   `finishLogin({ challenge, credential })`, anonymous, whose `options`
   feed `navigator.credentials` and whose sealed `challenge` comes back
   untouched.
-- `client.mfa` — the second factor (T-228): `state()`,
+- `client.mfa` — the second factor: `state()`,
   `startTotp()`, `confirmTotp({ code })` (the ten recovery codes come back
   shown-once), `removeTotp({ code? | recovery_code? })` (a proof is
   required; refused outright for a member of an org that requires MFA),
@@ -312,12 +312,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sealed challenge the password step handed out being the credential.
   Code shapes are checked before an attempt is spent: six digits (or
   eight), spaces removed.
-- `client.accounts` — several accounts signed in on one browser (T-228):
+- `client.accounts` — several accounts signed in on one browser:
   `list()`, `switch({ slot })`, `logout(slot)`, `logoutAll()`. These ride
   the session cookies (pass the browser's via `defaultHeaders`), answer
   only what the envelopes already told the browser, and are anonymous on
   purpose; slots are 1 to 3.
-- `client.speech` — dictation's server route (T-228):
+- `client.speech` — dictation's server route:
   `transcribe({ file, filename?, contentType?, language? })` (`POST
   /api/speech/transcribe`, multipart, one clip up to 10 MiB, the words
   back, nothing kept). Media types the route does not take are refused
@@ -326,8 +326,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Passkey`, `PasskeyList`, `TotpEnrolment`, `MfaState`,
   `RecoveryCodesReissued`, `SignedInAccount`, `AccountRoster`,
   `Transcription`, and the params interfaces beside them).
-- `client.edge` — edge pairing and sync (T-229, the resource side of the
-  decision: one namespace, two scoping halves). An admin mints and
+- `client.edge` — edge pairing and sync, the resource side of
+  the edge design: one namespace, two scoping halves. An admin mints and
   manages: `mint({ name })` (`POST /api/sync/pairings`, a ten-minute
   twelve-character Crockford code), `devices()`, `unpair(keyId)` -- owner
   or admin by membership row, an API key refused. A box redeems:
