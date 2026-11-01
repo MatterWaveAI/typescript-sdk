@@ -84,6 +84,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PROTECTED` also covers what matters when the root is the home folder
     or above it: `.bashrc`, `.bash_profile`, `.profile`, `.zshrc`,
     `.zprofile`, `.ssh/`, `.aws/` and `.config/matterwave` at any depth.
+- Agent contract `1.1.1`, regenerated from the Python SDK, fixes from the
+  clients' testing; each observable one is a case in `CONTRACT.conformance`:
+  - `confine` checks Windows aliases only in the names below the root, so a
+    root inside `/x/con/`, `/x/a:b/` or `/x/x./` takes absolute paths into
+    it again; `windowsAlias(path, root)` is that check on its own.
+  - A leading byte-order mark in `.gitignore` or `.matterwaveignore` is
+    dropped, and an invalid line (a `[...]` range that runs backwards) is
+    skipped, as git does, instead of failing every search and `confine`.
+  - glob classes are translated so every regex dialect reads them alike (a
+    `]` first is literal instead of an empty JavaScript class), and a
+    backwards range is `GlobError` from `globToRegex` and the new
+    `invalid_glob` ToolError from `globMatches`, `runGlob` and `runGrep`.
+  - A loop of links is `PathRefusedError` with the new code `loop`, never a
+    bare `Error`, and the walker leaves such links out.
+  - `runReadFile` and `runGrep` read no more than the cap + 1 bytes; a
+    pipe, socket or device (or a link to one) is the new `special_file`
+    ToolError, is left out of searches, and is never waited on.
+  - `CONTEXT_FILES` is MATTERWAVE.md, AGENTS.md, MATTERWAVE.local.md, so
+    passed in that order the user's own file wins; the prompt slot's rules
+    say so.
+  - `formatShell(output, { omitted })` formats an output of which a client
+    kept only the start and the end; `fill`, `checkLines` and `limit` are
+    exported from the agent index.
+  - `walkAsync`, `runGlobAsync` and `runGrepAsync` (`@matterwave/sdk/agent`)
+    give the sync results but yield to the event loop every few
+    milliseconds; `runGrepAsync(root, pattern, { timeoutS })` runs the regex
+    on a worker thread, ends it at the deadline and rejects with the new
+    `timeout` ToolError. The sync forms are unchanged.
+  - The `PROTECTED_LIST` and `allowed()` docs name the whole 1.1 list.
 - `toolsOf(models, modelId)` and `localAgentToolsOf(me)`: the
   `supports_tools` and `local_agent_tools` flags as `"yes"`, `"no"` or
   `"unknown"` (`ToolsVerdict`), as `visionOf` reads `supports_vision`.

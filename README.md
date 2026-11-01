@@ -339,7 +339,7 @@ The agent contract is what the MatterWave coding clients (the VS Code agent, the
 TUI's `code` mode) share: the local tools a client offers the model on `/v1`,
 the approval modes that gate them, the paths those tools may touch, what the
 read tools and `run_shell` return, and the agent-mode system prompt. It is
-versioned (`CONTRACT_VERSION`, `1.1.0`; the
+versioned (`CONTRACT_VERSION`, `1.1.1`; the
 prompt carries its own `SYSTEM_PROMPT_VERSION`). Its one source is the Python
 SDK's `contract.json`; `src/agent/contract.ts` is generated from it and must
 not be edited by hand.
@@ -490,7 +490,37 @@ Extra tools join the tool list and get a one-line description each; trusted
 context files follow as "Project instructions", each fenced between
 `<project-instructions path="...">` lines that its own text cannot close, and
 an untrusted file is left out. `toolsForMode(mode, extra)` adds the same
-`ExtraTool`s to the `tools` the mode offers.
+`ExtraTool`s to the `tools` the mode offers. Pass context files from the most
+shared to the most personal, the order of `CONTEXT_FILES` (`MATTERWAVE.md`,
+`AGENTS.md`, then `MATTERWAVE.local.md`): where two disagree the later one
+wins, so the user's own file comes last.
+
+### Fixes in 1.1.1
+
+- Windows aliases count only below the root: a root inside `/x/con/` or
+  `/x/a:b/` takes absolute paths (`windowsAlias(path, root)`).
+- Ignore and deny files drop a leading byte-order mark and skip an invalid
+  line (a `[...]` range that runs backwards, such as `[z-a]`), as git does.
+  The same range in a glob is the `invalid_glob` ToolError (`GlobError` from
+  `globToRegex`).
+- A loop of links is `PathRefusedError` (`loop`). A pipe, socket or device is
+  the `special_file` ToolError and is never opened to wait on; searches leave
+  it out. `runReadFile` and grep read no more than their cap + 1 bytes.
+- `formatShell(output, { omitted })` takes the start and end a client kept of
+  a long output, `omitted` being the bytes it dropped, and gives the same text
+  as the whole output would. `fill`, `checkLines` and `limit` are exported.
+- `walkAsync`, `runGlobAsync` and `runGrepAsync` give the sync results but
+  yield to the event loop every few milliseconds. `runGrepAsync(root, pattern,
+  { timeoutS: 5 })` runs the regex on a worker thread, ends it at the deadline
+  and rejects with `ToolError` (`timeout`), so a runaway pattern cannot hold
+  the extension host.
+
+```ts
+import { runGrepAsync, walkAsync } from "@matterwave/sdk/agent";
+
+for await (const path of walkAsync(root)) { /* yields between directories */ }
+const text = await runGrepAsync(root, pattern, { glob: "*.ts", timeoutS: 10 });
+```
 
 The contract changes in the Python SDK: edit its `contract.json`, bump
 `contract_version`, and run its `scripts/gen_agent_contract.py` with this repo

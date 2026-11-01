@@ -9,6 +9,7 @@
  * The Python SDK's suite runs the same cases.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +23,7 @@ import {
   DENY_FILE,
   DenyList,
   EDIT_CRLF_FALLBACK,
+  GlobError,
   IgnoreFile,
   KIND_DECISIONS,
   LIMITS,
@@ -38,15 +40,21 @@ import {
   TOOLS,
   ToolError,
   allowed,
+  checkLines,
   confine,
+  fill,
   formatReadFile,
   formatShell,
   globMatches,
+  globToRegex,
   isProtected,
+  limit,
   loadSearchIgnore,
   refusal,
   runGlob,
+  runGlobAsync,
   runGrep,
+  runGrepAsync,
   runListDir,
   runReadFile,
   systemPrompt,
@@ -54,6 +62,7 @@ import {
   utf8Head,
   utf8Tail,
   walk,
+  walkAsync,
   windowsAlias,
   type AnyToolKind,
   type ExtraTool,
@@ -64,9 +73,12 @@ import { agent } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+type Special = "links" | "fifos";
+
 interface ToolCase {
   tool: "read_file" | "list_dir" | "glob" | "grep";
   args: Record<string, string | number | boolean>;
+  needs?: Special[];
   limits?: Limits;
   expected?: string;
   error?: string;
@@ -77,11 +89,14 @@ interface ToolCase {
 
 interface Conformance {
   tree: Record<string, string>;
-  paths: { path: string; write?: boolean; relative?: string; refused?: string; message?: string }[];
+  links: Record<string, string>;
+  fifos: string[];
+  paths: { path: string; write?: boolean; needs?: Special[]; relative?: string; refused?: string; message?: string }[];
   tools: ToolCase[];
   ignore: { path: string; is_dir?: boolean; ancestors?: boolean; ignored: boolean }[];
   shell: {
     output: string;
+    omitted?: number;
     exit_code?: number | null;
     timed_out?: boolean;
     stopped?: boolean;
@@ -89,6 +104,7 @@ interface Conformance {
     limits?: Limits;
     expected: string;
   }[];
+  alias_roots: { root: string; path: string; refused: string | null }[];
 }
 
 interface Cases {
@@ -118,29 +134,59 @@ function writeTree(root: string, tree: Record<string, string>): void {
   }
 }
 
-function run(root: string, c: ToolCase): string {
-  const a = c.args;
-  const limits = c.limits;
-  switch (c.tool) {
-    case "read_file":
-      return runReadFile(root, a.path as string, {
-        startLine: a.start_line as number | undefined,
-        endLine: a.end_line as number | undefined,
-        limits,
-      });
-    case "list_dir":
-      return runListDir(root, (a.path as string | undefined) ?? ".", { limits });
-    case "glob":
-      return runGlob(root, a.pattern as string, { path: a.path as string | undefined, limits });
-    case "grep":
-      return runGrep(root, a.pattern as string, {
-        path: a.path as string | undefined,
-        glob: a.glob as string | undefined,
-        ignoreCase: a.ignore_case as boolean | undefined,
-        limits,
-      });
+/** The conformance `fifos` and `links`, where this platform can make them: the kinds it made. */
+function makeSpecials(root: string): Set<Special> {
+  const made = new Set<Special>();
+  if (process.platform !== "win32") {
+    for (const relative of CONFORMANCE.fifos) execFileSync("mkfifo", [join(root, relative)]);
+    made.add("fifos");
   }
+  try {
+    for (const [relative, target] of Object.entries(CONFORMANCE.links)) symlinkSync(target, join(root, relative), "file");
+    made.add("links");
+  } catch {
+    // Windows without Developer Mode cannot make links.
+  }
+  return made;
 }
+
+const MADE = new Set<Special>();
+
+function unmet(c: { needs?: Special[] }): string | null {
+  const missing = (c.needs ?? []).filter((n) => !MADE.has(n));
+  return missing.length > 0 ? `this platform cannot make ${missing.join(", ")}` : null;
+}
+
+type Run<T> = (root: string, c: ToolCase) => T;
+
+function runner(sync: boolean): Run<string | Promise<string>> {
+  return (root, c) => {
+    const a = c.args;
+    const limits = c.limits;
+    switch (c.tool) {
+      case "read_file":
+        return runReadFile(root, a.path as string, {
+          startLine: a.start_line as number | undefined,
+          endLine: a.end_line as number | undefined,
+          limits,
+        });
+      case "list_dir":
+        return runListDir(root, (a.path as string | undefined) ?? ".", { limits });
+      case "glob":
+        return (sync ? runGlob : runGlobAsync)(root, a.pattern as string, { path: a.path as string | undefined, limits });
+      case "grep":
+        return (sync ? runGrep : runGrepAsync)(root, a.pattern as string, {
+          path: a.path as string | undefined,
+          glob: a.glob as string | undefined,
+          ignoreCase: a.ignore_case as boolean | undefined,
+          limits,
+        });
+    }
+  };
+}
+
+const run = runner(true) as Run<string>;
+const runAsync = runner(false);
 
 let tree = "";
 const scratch: string[] = [];
@@ -154,6 +200,7 @@ function tempDir(): string {
 beforeAll(() => {
   tree = tempDir();
   writeTree(tree, CONFORMANCE.tree);
+  for (const kind of makeSpecials(tree)) MADE.add(kind);
 });
 
 afterAll(() => {
@@ -162,31 +209,57 @@ afterAll(() => {
 
 // --- the read tools' output ----------------------------------------------------
 
+function expectOutcome(c: ToolCase, got: string | undefined, thrown: unknown): void {
+  if (c.expected !== undefined) {
+    if (thrown !== undefined) throw thrown;
+    expect(got).toBe(c.expected);
+    return;
+  }
+  expect(thrown).toBeInstanceOf(c.refused ? PathRefusedError : ToolError);
+  const error = thrown as PathRefusedError | ToolError;
+  expect(error.reason).toBe(c.refused ?? c.error);
+  if (c.message !== undefined) expect(error.message).toBe(c.message);
+  else expect(error.message.startsWith(c.message_prefix!)).toBe(true);
+}
+
+const TOOL_CASES = CONFORMANCE.tools.map((c) => [`${c.tool} ${JSON.stringify(c.args)}${c.limits ? " limits" : ""}`, c] as const);
+
 describe("tool output", () => {
-  it.each(CONFORMANCE.tools.map((c) => [`${c.tool} ${JSON.stringify(c.args)}${c.limits ? " limits" : ""}`, c] as const))(
-    "%s",
-    (_, c) => {
-      if (c.expected !== undefined) {
-        expect(run(tree, c)).toBe(c.expected);
-        return;
-      }
-      let thrown: unknown;
-      try {
-        run(tree, c);
-      } catch (error) {
-        thrown = error;
-      }
-      expect(thrown).toBeInstanceOf(c.refused ? PathRefusedError : ToolError);
-      const error = thrown as PathRefusedError | ToolError;
-      expect(error.reason).toBe(c.refused ?? c.error);
-      if (c.message !== undefined) expect(error.message).toBe(c.message);
-      else expect(error.message.startsWith(c.message_prefix!)).toBe(true);
-    },
-  );
+  it.for(TOOL_CASES)("%s", ([, c], { skip }) => {
+    const why = unmet(c);
+    if (why) skip(why);
+    let got: string | undefined;
+    let thrown: unknown;
+    try {
+      got = run(tree, c);
+    } catch (error) {
+      thrown = error;
+    }
+    expectOutcome(c, got, thrown);
+  });
+
+  it.for(TOOL_CASES.filter(([, c]) => c.tool === "glob" || c.tool === "grep"))("async %s", async ([, c], { skip }) => {
+    const why = unmet(c);
+    if (why) skip(why);
+    let got: string | undefined;
+    let thrown: unknown;
+    try {
+      got = await runAsync(tree, c);
+    } catch (error) {
+      thrown = error;
+    }
+    expectOutcome(c, got, thrown);
+  });
 
   it("has a case for every tool error", () => {
+    // run_shell's bad_timeout is no read tool's, and grep's timeout depends on
+    // the machine; both have tests of their own.
     const covered = new Set(CONFORMANCE.tools.flatMap((c) => (c.error ? [c.error] : [])));
-    expect([...covered].sort()).toEqual(Object.keys(TOOL_ERRORS).filter((k) => k !== "bad_timeout").sort());
+    expect([...covered].sort()).toEqual(
+      Object.keys(TOOL_ERRORS)
+        .filter((k) => k !== "bad_timeout" && k !== "timeout")
+        .sort(),
+    );
   });
 
   it("walks past what search ignores", () => {
@@ -223,9 +296,11 @@ describe("tool output", () => {
 // --- what confine makes of a path ---------------------------------------------
 
 describe("confine paths", () => {
-  it.each(CONFORMANCE.paths.map((c) => [`${JSON.stringify(c.path)}${c.write ? " (write)" : ""}`, c] as const))(
+  it.for(CONFORMANCE.paths.map((c) => [`${JSON.stringify(c.path)}${c.write ? " (write)" : ""}`, c] as const))(
     "%s",
-    (_, c) => {
+    ([, c], { skip }) => {
+      const why = unmet(c);
+      if (why) skip(why);
       if (c.relative !== undefined) {
         expect(confine(tree, c.path, { write: c.write ?? false }).relative).toBe(c.relative);
         return;
@@ -318,6 +393,7 @@ describe("shell output", () => {
         stopped: c.stopped ?? false,
         timeoutS: c.timeout_s,
         limits: c.limits,
+        omitted: c.omitted,
       }),
     ).toBe(c.expected);
   });
@@ -387,7 +463,8 @@ describe("protected files", () => {
 
   it("lists them, and the agent index exports the matcher and the CRLF flag", () => {
     expect(PROTECTED).toEqual([".matterwaveignore", ".matterwave/", "MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".ssh/", ".aws/", "**/.config/matterwave"]);
-    expect(CONTEXT_FILES).toEqual(["MATTERWAVE.md", "MATTERWAVE.local.md", "AGENTS.md"]);
+    // The personal file comes last, so it wins where it and a shared one disagree.
+    expect(CONTEXT_FILES).toEqual(["MATTERWAVE.md", "AGENTS.md", "MATTERWAVE.local.md"]);
     expect(SETTINGS_DIR).toBe(".matterwave/");
     expect(PROTECTED_LIST.patterns).toEqual(PROTECTED);
     expect(EDIT_CRLF_FALLBACK).toBe(true);
@@ -419,7 +496,7 @@ describe("refusals", () => {
     );
     expect([...Object.keys(REFUSALS), ...Object.keys(APPROVAL_REFUSALS)].sort()).toEqual(
       [
-        ...["empty", "parent", "outside", "symlink", "denied", "protected", "stream", "trailing", "device", "unc"],
+        ...["empty", "parent", "outside", "symlink", "loop", "denied", "protected", "stream", "trailing", "device", "unc"],
         ...["mode", "unknown_tool", "rejected", "headless", "needs_approval"],
       ].sort(),
     );
@@ -482,5 +559,197 @@ describe("links", () => {
     }
     expect([...walk(root)]).toEqual(["src/a.py"]);
     expect(runListDir(root)).toBe("again/\nsrc/");
+  });
+
+  it("refuses a loop of links", ({ skip }) => {
+    const dir = tempDir();
+    try {
+      symlinkSync("loop", join(dir, "loop"), "file");
+      symlinkSync("pong", join(dir, "ping"), "file");
+      symlinkSync("ping", join(dir, "pong"), "file");
+    } catch (error) {
+      skip(`symbolic links need admin or Developer Mode on Windows: ${String(error)}`);
+    }
+    writeFileSync(join(dir, "a.txt"), "x\n");
+    for (const path of ["loop", "ping", "pong/x", join(dir, "ping")]) {
+      let thrown: unknown;
+      try {
+        confine(dir, path, { write: true });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(PathRefusedError);
+      expect([path, (thrown as PathRefusedError).reason]).toEqual([path, "loop"]);
+    }
+    expect([...walk(dir)]).toEqual(["a.txt"]);
+    expect(runListDir(dir)).toBe("a.txt");
+  });
+});
+
+// --- 1.1.1 fixes -----------------------------------------------------------------
+
+function reasonOf(call: () => unknown): string | undefined {
+  try {
+    call();
+  } catch (error) {
+    return (error as { reason?: string }).reason;
+  }
+  return undefined;
+}
+
+describe("1.1.1 fixes", () => {
+  it.each(CONFORMANCE.alias_roots.map((c) => [`${JSON.stringify(c.path)} in ${JSON.stringify(c.root)}`, c] as const))(
+    "checks only the names below the root: %s",
+    (_, c) => {
+      expect(windowsAlias(c.path, c.root)).toBe(c.refused);
+    },
+  );
+
+  it.skipIf(process.platform === "win32").each(["con", "a:b", "x.", "NUL.d"])(
+    "takes absolute paths into a root inside %s",
+    (parent) => {
+      const root = join(tempDir(), parent, "repo");
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "a.py"), "x = 1\n");
+      const absolute = join(root, "src", "a.py");
+      expect(confine(root, absolute).relative).toBe("src/a.py");
+      expect(runReadFile(root, absolute)).toBe("1\tx = 1");
+      expect(runGrep(root, "x", { path: root })).toBe("src/a.py:1: x = 1");
+      expect(reasonOf(() => confine(root, join(root, "nul.txt")))).toBe("device");
+    },
+  );
+
+  it("drops a byte-order mark before the first rule", () => {
+    expect(new IgnoreFile("\ufeff*.log\n").match("a.log")).toBe(true);
+    expect(DenyList.withIgnoreFile("\ufeffsecrets/\n").matches("secrets/x")).toBe(true);
+    const files: Record<string, string> = { ".gitignore": "\ufeffbuild/\n" };
+    expect(new SearchIgnore((r) => files[r] ?? null).ignored("build/a.txt")).toBe(true);
+  });
+
+  it("skips an invalid ignore line", () => {
+    const rules = new IgnoreFile("[z-a]\n*.log\n!keep.log\n");
+    expect(rules.match("a.log")).toBe(true);
+    expect(rules.match("keep.log")).toBe(false);
+    expect(rules.match("z")).toBe(null);
+    const deny = DenyList.withIgnoreFile("[9-0]*\nprivate/\n");
+    expect(deny.matches("private/x")).toBe(true);
+    expect(deny.matches("9")).toBe(false);
+  });
+
+  it("keeps searching and confining past an invalid ignore file", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, ".gitignore"), "[z-a]\n*.log\n");
+    writeFileSync(join(dir, ".matterwaveignore"), "[z-a]\nsecret/\n");
+    writeFileSync(join(dir, "a.txt"), "hit\n");
+    writeFileSync(join(dir, "b.log"), "hit\n");
+    expect(runGrep(dir, "hit")).toBe("a.txt:1: hit");
+    expect(confine(dir, "a.txt").relative).toBe("a.txt");
+    expect(reasonOf(() => confine(dir, "secret/x"))).toBe("denied");
+  });
+
+  it("reads glob classes alike in every dialect", () => {
+    expect(globMatches("[]x]", "]")).toBe(true);
+    expect(globMatches("[!]x]", "a")).toBe(true);
+    expect(globMatches("[!]x]", "]")).toBe(false);
+    expect(globMatches("[^a]", "b")).toBe(true);
+    expect(globMatches("[^a]", "A")).toBe(false);
+    expect(globMatches("[a-]", "-")).toBe(true);
+    expect(globMatches("[\\]", "\\")).toBe(true);
+    expect(globMatches("[!]", "[!]")).toBe(true);
+    expect(globMatches("a[b", "a[b")).toBe(true);
+    expect(() => globToRegex("[z-a]")).toThrow(GlobError);
+    expect(reasonOf(() => globMatches("[z-a]", "x"))).toBe("invalid_glob");
+  });
+
+  it("refuses an invalid glob before searching", async () => {
+    const dir = tempDir();
+    expect(reasonOf(() => runGlob(dir, "[z-a]", { path: "nowhere" }))).toBe("invalid_glob");
+    expect(reasonOf(() => runGrep(dir, "x", { path: "nowhere", glob: "[z-a]" }))).toBe("invalid_glob");
+    await expect(runGlobAsync(dir, "[z-a]")).rejects.toMatchObject({ reason: "invalid_glob" });
+  });
+
+  it.skipIf(process.platform === "win32")("never waits on a named pipe", async () => {
+    const dir = tempDir();
+    execFileSync("mkfifo", [join(dir, "pipe")]);
+    writeFileSync(join(dir, "a.txt"), "x\n");
+    for (const call of [
+      () => runReadFile(dir, "pipe"),
+      () => runGrep(dir, "x", { path: "pipe" }),
+      () => runListDir(dir, "pipe"),
+      () => [...walk(dir, "pipe")],
+    ]) {
+      expect(reasonOf(call)).toBe("special_file");
+    }
+    expect(runGrep(dir, "x")).toBe("a.txt:1: x");
+    expect(await runGrepAsync(dir, "x")).toBe("a.txt:1: x");
+    expect(runListDir(dir)).toBe("a.txt");
+  });
+
+  it("walks alike sync and async", async () => {
+    const walked: string[] = [];
+    for await (const path of walkAsync(tree)) walked.push(path);
+    expect(walked).toEqual([...walk(tree)]);
+    const one: string[] = [];
+    for await (const path of walkAsync(tree, "src/main.py")) one.push(path);
+    expect(one).toEqual(["src/main.py"]);
+  });
+
+  it("yields to the event loop while it searches", async () => {
+    const dir = tempDir();
+    for (let i = 0; i < 300; i++) writeFileSync(join(dir, `f${i}.txt`), "TODO\n".repeat(50));
+    let ticks = 0;
+    let running = true;
+    const tick = () => {
+      ticks += 1;
+      if (running) setImmediate(tick);
+    };
+    setImmediate(tick);
+    const text = await runGrepAsync(dir, "TODO", { limits: { search_max_results: 100000 } });
+    running = false;
+    expect(text.split("\n").length).toBe(300 * 50);
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  it("stops a runaway pattern at its deadline on a worker thread", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "slow.txt"), "a".repeat(40) + "b\n");
+    const started = Date.now();
+    await expect(runGrepAsync(dir, "(a+)+$", { timeoutS: 0.3 })).rejects.toMatchObject({
+      reason: "timeout",
+      message: "The search for (a+)+$ stopped after 0.3 s without finishing. Try a simpler pattern, a narrower path or a glob.",
+    });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(await runGrepAsync(dir, "b$", { timeoutS: 30 })).toBe(`slow.txt:1: ${"a".repeat(40)}b`);
+    await expect(runGrepAsync(dir, "x", { timeoutS: 0 })).rejects.toThrow(RangeError);
+  });
+
+  it("formats a head and tail a client kept", () => {
+    const limits = { shell_output_max_bytes: 64 };
+    const whole = Array.from({ length: 200 }, (_, n) => `line ${n} é😀\n`).join("");
+    const data = Buffer.from(whole, "utf-8");
+    for (const keep of [32, 33, 40, 64]) {
+      const head = new TextDecoder().decode(data.subarray(0, keep), { stream: true });
+      let tail = new TextDecoder().decode(data.subarray(data.length - keep));
+      tail = tail.replace(/^\ufffd+/, "");
+      const dropped = data.length - Buffer.byteLength(head) - Buffer.byteLength(tail);
+      expect([keep, formatShell(head + tail, { exitCode: 0, limits, omitted: dropped })]).toEqual([
+        keep,
+        formatShell(whole, { exitCode: 0, limits }),
+      ]);
+    }
+    expect(formatShell("", { exitCode: 0, omitted: 4 })).toBe("Exit code 0\n\n[... 4 bytes of output cut from the middle ...]\n");
+    expect(() => formatShell("x", { exitCode: 0, omitted: -1 })).toThrow(RangeError);
+  });
+
+  it("exports the helpers clients reimplemented", () => {
+    expect(fill("{a} {b}", { a: "1" })).toBe("1 {b}");
+    expect(limit("read_max_lines")).toBe(LIMITS.read_max_lines);
+    expect(limit("read_max_lines", { read_max_lines: 3 })).toBe(3);
+    checkLines(1, 1);
+    expect(reasonOf(() => checkLines(0))).toBe("bad_line");
+    expect(reasonOf(() => checkLines(3, 2))).toBe("end_before_start");
+    expect(agent.fill).toBe(fill);
+    expect(agent.checkLines).toBe(checkLines);
+    expect(agent.limit).toBe(limit);
   });
 });
