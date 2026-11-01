@@ -561,6 +561,173 @@ export interface UpdateAnnouncementParams {
   end_now?: boolean;
 }
 
+// --- account self-service -------------------------------------------------------
+
+/**
+ * One live browser session, as `GET /api/me/sessions` lists it. `current`
+ * flags the session that made the request; `current_id` on the list is null
+ * for a session minted before sessions had rows (or an API caller with no
+ * cookie), and then nothing is flagged.
+ */
+export interface SessionRow {
+  id: string;
+  current: boolean;
+  created_at: string;
+  last_seen_at: string;
+  user_agent: string | null;
+  ip: string | null;
+}
+
+/** `GET /api/me/sessions`: the caller's live sessions, the current one flagged. */
+export interface SessionList {
+  current_id: string | null;
+  sessions: SessionRow[];
+}
+
+/** The answer to `revokeSession`: which session went, and whether it was the caller's own. */
+export interface SessionRevoked {
+  status: string;
+  current: boolean;
+}
+
+/** The answer to `revokeOtherSessions`: how many other sessions ended. */
+export interface SessionsRevokedOthers {
+  revoked: number;
+}
+
+/** The mail the caller has opted into. `billing_receipts` is transactional mail and is always sent; the toggle only says so. */
+export interface EmailPreferences {
+  product_updates: boolean;
+  usage_alerts: boolean;
+  billing_receipts: true;
+}
+
+export interface NotificationPreferences {
+  budget_warn: boolean;
+}
+
+/**
+ * `GET /api/me/preferences`, and the answer to `update`: the whole shape,
+ * validated by the server -- an unknown locale or a receipts toggle set to
+ * false is a 422 before anything is written.
+ */
+export interface Preferences {
+  email: EmailPreferences;
+  /** A BCP-47 language tag such as `en` or `en-GB`; null is the server's default. */
+  locale: string | null;
+  notifications: NotificationPreferences;
+}
+
+/** The body of `account.updatePreferences`: the whole shape, as `get` returned it. */
+export interface UpdatePreferencesParams {
+  email?: Partial<EmailPreferences>;
+  locale?: string | null;
+  notifications?: Partial<NotificationPreferences>;
+}
+
+/** The body of `account.changePassword`. A session only: an API key acts for its owner, and its owner's password is not the key's to change. */
+export interface PasswordChangeParams {
+  current_password: string;
+  /** At least 12 characters -- the signup floor, checked here and again by the server. */
+  new_password: string;
+}
+
+/** The answer to `changePassword`: every other session ended with it, the count beside the fact. */
+export interface PasswordChanged {
+  status: string;
+  revoked: number;
+}
+
+/** The body of `account.rename`. Whitespace-collapsed; at most 100 characters once it is. */
+export interface RenameParams {
+  full_name: string;
+}
+
+/** The answer to `rename`: the name as the row now holds it. */
+export interface Renamed {
+  name: string;
+}
+
+/** The answer to `acceptTerms`: the version recorded, when, and that it is the one in force. */
+export interface TermsAccepted {
+  terms_version: string;
+  terms_accepted_at: string | null;
+  terms_current: boolean;
+}
+
+/** The body of `acceptTerms`. Only the current version is accepted; a stale constant is a 422. */
+export interface AcceptTermsParams {
+  version: string;
+}
+
+/** The answer to `completeOnboarding`: the flag and the timestamp it was first set, idempotently. */
+export interface OnboardingComplete {
+  onboarding_completed: true;
+  completed_at: string;
+}
+
+/** `GET /api/me/email`: the sign-in address and any change still waiting for its code. */
+export interface EmailChangeState {
+  email: string | null;
+  pending_email: string | null;
+}
+
+/** The body of `startEmailChange`. A session only; the new address is mailed a code. */
+export interface StartEmailChangeParams {
+  new_email: string;
+  current_password: string;
+}
+
+/** The answer to `startEmailChange` and `resendEmailChange`: a code went to the new address (or did not -- `mail_sent` says which). */
+export interface EmailCodeSent {
+  status: string;
+  new_email: string;
+  mail_sent: boolean;
+}
+
+/** The body of `verifyEmailChange`. */
+export interface VerifyEmailChangeParams {
+  code: string;
+}
+
+/** The answer to `verifyEmailChange`: the address moved, every other session ended, and the old address was told. */
+export interface EmailChanged {
+  status: string;
+  email: string;
+  revoked: number;
+  notice_sent: boolean;
+}
+
+/** The answer to `cancelEmailChange`: the pending change is gone and the old address stands. */
+export interface EmailChangeCancelled {
+  status: string;
+  email: string;
+}
+
+/**
+ * The answer to `deleteAccount`. Danger: this soft-deletes every
+ * conversation the caller owns, revokes their API keys, drops their
+ * instructions and asks the identity provider to deactivate the login,
+ * and it cannot be undone from the API. `identity_removed: false` means
+ * the data is gone but the login is not -- the client must say so rather
+ * than smooth it over.
+ */
+export interface AccountDeleted {
+  status: string;
+  conversations_deleted: number;
+  attachments_marked_deleted: number;
+  api_keys_revoked: number;
+  custom_instructions_deleted: number;
+  retention_days: number;
+  identity_removed: boolean;
+  deletion_request_id: string | null;
+}
+
+/** The body of `deleteAccount`: the confirmation phrase, exactly (`"delete my account"`). */
+export interface DeleteAccountParams {
+  confirm: string;
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

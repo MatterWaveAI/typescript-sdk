@@ -32,6 +32,7 @@ import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Notifications, Shares, UsageClient, Webhooks } from "./native.js";
+import { Account } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
@@ -572,6 +573,8 @@ export class MatterWave {
   readonly admin: Admin;
   /** The `/mcp` JSON-RPC endpoint: list tools, call one, send a message. */
   readonly mcp: Mcp;
+  /** The caller's own account: rename, terms, password, email, sessions, preferences, deletion. */
+  readonly account: Account;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -614,6 +617,7 @@ export class MatterWave {
     this.entitlements = new EntitlementsClient(this);
     this.admin = new Admin(this);
     this.mcp = new Mcp(this);
+    this.account = new Account(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

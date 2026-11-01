@@ -28,6 +28,8 @@ import type { MatterWave, Prepared, RequestOptions } from "./client.js";
 import type { Conversation, SearchResults } from "./conversation-types.js";
 import { query, segment } from "./conversations.js";
 import type {
+  AccountDeleted,
+  AcceptTermsParams,
   AdminAnnouncement,
   AdminAnnouncementList,
   AnnouncementList,
@@ -47,6 +49,11 @@ import type {
   CreateWebhookParams,
   CreatedShare,
   DeliveryStatus,
+  DeleteAccountParams,
+  EmailChangeCancelled,
+  EmailChangeState,
+  EmailCodeSent,
+  EmailChanged,
   Entitlements,
   Folder,
   Library,
@@ -55,22 +62,34 @@ import type {
   MemberBudgetList,
   NotificationList,
   NotificationListParams,
+  OnboardingComplete,
   OrgUsage,
+  PasswordChangeParams,
+  PasswordChanged,
+  Preferences,
   ReadAllNotifications,
   ReadNotification,
+  RenameParams,
+  SessionList,
+  SessionRevoked,
+  SessionsRevokedOthers,
   SetMemberCapParams,
   SetMemberDefaultCapParams,
   SetOverageCapParams,
   ShareList,
   SharedConversation,
+  StartEmailChangeParams,
   Tag,
+  TermsAccepted,
   UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
+  UpdatePreferencesParams,
   UpdateWebhookParams,
   UploadAttachmentParams,
   UsageBalance,
   UsagePeriodParams,
+  VerifyEmailChangeParams,
   WebhookDelivery,
   WebhookDeliveryList,
   WebhookEndpoint,
@@ -82,6 +101,9 @@ import type { WithRequestId } from "./types.js";
 const DELIVERY_STATUSES: readonly DeliveryStatus[] = ["pending", "sending", "delivered", "failed"];
 const AUDIT_LIMIT_MAX = 200;
 const KEY_FIELDS = ["name", "scopes", "expires_in_days", "expires_at", "allowed_cidrs", "rpm_limit"] as const;
+const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MAX_LENGTH = 256;
+const DELETE_ACCOUNT_PHRASE = "delete my account";
 
 /** The keys that were given, `null` included: where null means "clear it", it has to be sent. */
 function given(body: object): Record<string, unknown> {
@@ -682,6 +704,162 @@ export class Admin {
   readonly announcements: AdminAnnouncements;
   constructor(client: MatterWave) {
     this.announcements = new AdminAnnouncements(client);
+  }
+}
+
+// --- account ------------------------------------------------------------------
+
+function checkNewPassword(newPassword: string): void {
+  if (newPassword.length < PASSWORD_MIN_LENGTH) {
+    throw new MatterWaveConfigError(
+      `Use at least ${PASSWORD_MIN_LENGTH} characters: length is what makes a password hard to guess, not symbols.`,
+    );
+  }
+  if (newPassword.length > PASSWORD_MAX_LENGTH) {
+    throw new MatterWaveConfigError(`new_password must be at most ${PASSWORD_MAX_LENGTH} characters`);
+  }
+}
+
+/**
+ * The person's own account, beyond reading it: rename, re-accept the
+ * terms, change the password or the email address, list and sign out
+ * sessions, keep preferences, complete onboarding, and delete the
+ * account. Every route here is about the caller and nobody else -- the
+ * subject in the principal is the only key any of them use.
+ *
+ * The password and email writes are a **signed-in session's, not an API
+ * key's**: a key acts for its owner, and its owner's password is not the
+ * key's to change, so those routes answer a key with 403. The reads and
+ * the rest work with either.
+ */
+export class Account extends Resource {
+  /** `PATCH /api/me`: rename. Whitespace-collapsed, at most 100 characters once it is. */
+  rename(params: RenameParams, options: RequestOptions = {}): Promise<WithRequestId<{ name: string }>> {
+    if (!params.full_name?.trim()) throw new MatterWaveConfigError("full_name must not be empty");
+    if (params.full_name.length > 1000) {
+      throw new MatterWaveConfigError("full_name must be at most 1000 characters");
+    }
+    return this.call("PATCH", "/api/me", params, options);
+  }
+
+  /**
+   * `POST /api/me/accept-terms`: record acceptance of the current terms.
+   * Only the current version is accepted -- a client holding a stale
+   * constant gets the server's 422 -- and the answer says which version
+   * was recorded.
+   */
+  acceptTerms(params: AcceptTermsParams, options: RequestOptions = {}): Promise<WithRequestId<TermsAccepted>> {
+    if (!params.version?.trim()) throw new MatterWaveConfigError("version must be non-empty");
+    return this.call("POST", "/api/me/accept-terms", params, options);
+  }
+
+  /** `POST /api/me/onboarding/complete`: record that the first-run walkthrough was finished or skipped. Idempotent; a second call keeps the first timestamp. */
+  completeOnboarding(options: RequestOptions = {}): Promise<WithRequestId<OnboardingComplete>> {
+    return this.call("POST", "/api/me/onboarding/complete", undefined, options);
+  }
+
+  /**
+   * `POST /api/me/password`: change the password. A session only (403 for
+   * an API key). On success every other session ends -- a changed password
+   * is most often a response to a device the person no longer trusts --
+   * and the answer counts them.
+   */
+  changePassword(params: PasswordChangeParams, options: RequestOptions = {}): Promise<WithRequestId<PasswordChanged>> {
+    if (!params.current_password) throw new MatterWaveConfigError("current_password must be non-empty");
+    checkNewPassword(params.new_password);
+    return this.call("POST", "/api/me/password", params, options);
+  }
+
+  /** `GET /api/me/sessions`: the caller's live sessions, the one making the request flagged. */
+  sessions(options: RequestOptions = {}): Promise<WithRequestId<SessionList>> {
+    return this.call("GET", "/api/me/sessions", undefined, options);
+  }
+
+  /**
+   * `DELETE /api/me/sessions/{id}`: sign one session out. The caller's own
+   * is allowed -- it is "sign out" with the row revoked as well.
+   * `NotFoundError` for one that is not the caller's.
+   */
+  revokeSession(sessionId: string, options: RequestOptions = {}): Promise<WithRequestId<SessionRevoked>> {
+    return this.call("DELETE", `/api/me/sessions/${segment("sessionId", sessionId)}`, undefined, options);
+  }
+
+  /** `POST /api/me/sessions/revoke-others`: every session but this one; the answer counts them. */
+  revokeOtherSessions(options: RequestOptions = {}): Promise<WithRequestId<SessionsRevokedOthers>> {
+    return this.call("POST", "/api/me/sessions/revoke-others", undefined, options);
+  }
+
+  /** `GET /api/me/preferences`: the caller's preferences, defaults applied where nothing was saved. */
+  preferences(options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
+    return this.call("GET", "/api/me/preferences", undefined, options);
+  }
+
+  /**
+   * `PUT /api/me/preferences`: the whole shape, validated by the server --
+   * an unknown locale is a 422 before anything is written. Send what
+   * `preferences()` returned; the type holds `billing_receipts` to `true`,
+   * because receipts are transactional mail the server refuses to switch
+   * off.
+   */
+  updatePreferences(params: UpdatePreferencesParams, options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
+    if (params.locale !== undefined && params.locale !== null) {
+      if (params.locale.length > 35 || !/^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/.test(params.locale.trim())) {
+        throw new MatterWaveConfigError("locale must be a BCP-47 language tag such as en or en-GB");
+      }
+    }
+    return this.call("PUT", "/api/me/preferences", params, options);
+  }
+
+  /** `GET /api/me/email`: the sign-in address and any change still waiting for its code, so a client can come back to the code step after a reload. Session only. */
+  emailChangeState(options: RequestOptions = {}): Promise<WithRequestId<EmailChangeState>> {
+    return this.call("GET", "/api/me/email", undefined, options);
+  }
+
+  /**
+   * `POST /api/me/email`: mail a code to the new address. Nothing about
+   * the login changes here -- the old address keeps signing in until the
+   * code comes back. A session only. SSO-managed accounts are refused with
+   * a 409 (the organisation's directory owns the address).
+   */
+  startEmailChange(params: StartEmailChangeParams, options: RequestOptions = {}): Promise<WithRequestId<EmailCodeSent>> {
+    if (!params.new_email?.includes("@")) throw new MatterWaveConfigError("new_email must be an email address");
+    if (!params.current_password) throw new MatterWaveConfigError("current_password must be non-empty");
+    return this.call("POST", "/api/me/email", params, options);
+  }
+
+  /**
+   * `POST /api/me/email/verify`: the code back; the address moves, every
+   * other session ends, and the old address is told. A session only.
+   */
+  verifyEmailChange(params: VerifyEmailChangeParams, options: RequestOptions = {}): Promise<WithRequestId<EmailChanged>> {
+    if (!params.code?.trim()) throw new MatterWaveConfigError("code must be non-empty");
+    return this.call("POST", "/api/me/email/verify", params, options);
+  }
+
+  /** `POST /api/me/email/resend`: a fresh code for the pending address; 409 when nothing is pending. Session only. */
+  resendEmailChange(options: RequestOptions = {}): Promise<WithRequestId<EmailCodeSent>> {
+    return this.call("POST", "/api/me/email/resend", undefined, options);
+  }
+
+  /** `POST /api/me/email/cancel`: abandon a change that was started and not finished. Harmless when nothing is pending. Session only. */
+  cancelEmailChange(options: RequestOptions = {}): Promise<WithRequestId<EmailChangeCancelled>> {
+    return this.call("POST", "/api/me/email/cancel", undefined, options);
+  }
+
+  /**
+   * `DELETE /api/me`: delete the account's data and end the session.
+   * Danger: soft-deletes every conversation the caller owns, revokes their
+   * API keys, drops their instructions and asks the identity provider to
+   * deactivate the login, and cannot be undone from the API. The last
+   * owner of an org that still has members must hand it over first (409).
+   * `confirm` is the phrase `"delete my account"`, exactly, checked here
+   * and again by the server. A session only.
+   */
+  deleteAccount(params: DeleteAccountParams, options: RequestOptions = {}): Promise<WithRequestId<AccountDeleted>> {
+    if (params.confirm?.trim().toLowerCase() !== DELETE_ACCOUNT_PHRASE) {
+      throw new MatterWaveConfigError(`Confirmation phrase must be "${DELETE_ACCOUNT_PHRASE}".`);
+    }
+    return this.call("DELETE", "/api/me", params, options);
   }
 }
 

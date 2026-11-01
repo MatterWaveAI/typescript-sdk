@@ -58,6 +58,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `client.account` — the person's own account, the writes the Account and
+  Preferences panes make (T-207): `rename({ full_name })`
+  (`PATCH /api/me`), `acceptTerms({ version })`, `completeOnboarding()`,
+  `changePassword({ current_password, new_password })`
+  (`POST /api/me/password`; every other session ends with it),
+  `sessions()`, `revokeSession(id)`, `revokeOtherSessions()`,
+  `preferences()` / `updatePreferences(prefs)` (`GET`/`PUT
+  /api/me/preferences`), the email change --
+  `emailChangeState()`, `startEmailChange({ new_email, current_password })`,
+  `verifyEmailChange({ code })`, `resendEmailChange()`,
+  `cancelEmailChange()` -- and `deleteAccount({ confirm })`
+  (`DELETE /api/me`, the phrase `"delete my account"`, typed and documented
+  as the danger it is). The password and email writes are a signed-in
+  session's; the platform answers an API key with 403 there. Client-side
+  checks mirror the server's before anything is sent: the 12-character
+  password floor, the BCP-47 locale and the deletion phrase.
+  `Preferences.billing_receipts` is typed `true` only -- receipts are
+  transactional mail the server refuses to switch off, and now so is the
+  type.
+- `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
+  `EmailChangeState`, `AccountDeleted` and the rest of the account family's
+  wire types.
+
 - `webhooks.unwrap(payload, headers, secret)` — the receiver's half of
   webhooks: verify a delivered event and decode it. The
   `MatterWave-Signature` header (`t=<unix>,v1=<hex HMAC-SHA256>` over

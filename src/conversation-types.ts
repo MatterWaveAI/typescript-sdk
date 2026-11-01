@@ -95,6 +95,21 @@ export const APP_OPERATIONS = {
   "admin.announcements.update": ["PATCH", "/api/admin/announcements/{announcement_id}"],
   "admin.announcements.delete": ["DELETE", "/api/admin/announcements/{announcement_id}"],
   "entitlements.get": ["GET", "/api/entitlements"],
+  "account.rename": ["PATCH", "/api/me"],
+  "account.delete": ["DELETE", "/api/me"],
+  "account.acceptTerms": ["POST", "/api/me/accept-terms"],
+  "account.completeOnboarding": ["POST", "/api/me/onboarding/complete"],
+  "account.changePassword": ["POST", "/api/me/password"],
+  "account.sessions": ["GET", "/api/me/sessions"],
+  "account.revokeSession": ["DELETE", "/api/me/sessions/{session_id}"],
+  "account.revokeOtherSessions": ["POST", "/api/me/sessions/revoke-others"],
+  "account.preferences": ["GET", "/api/me/preferences"],
+  "account.updatePreferences": ["PUT", "/api/me/preferences"],
+  "account.emailChangeState": ["GET", "/api/me/email"],
+  "account.startEmailChange": ["POST", "/api/me/email"],
+  "account.verifyEmailChange": ["POST", "/api/me/email/verify"],
+  "account.resendEmailChange": ["POST", "/api/me/email/resend"],
+  "account.cancelEmailChange": ["POST", "/api/me/email/cancel"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {
