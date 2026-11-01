@@ -43,7 +43,7 @@ describe("client.lastResponse", () => {
   });
 
   it("a retried call leaves the final response", async () => {
-    const { fetch } = stubFetch([text("boom", 500), json(completionBody())]);
+    const { fetch } = stubFetch([text("slow down", 429), json(completionBody())]);
     const c = client(fetch, { maxRetries: 1 });
     await c.chat.completions.create(PROMPT);
     expect(c.lastResponse!.status).toBe(200);

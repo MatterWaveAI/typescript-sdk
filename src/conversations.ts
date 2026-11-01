@@ -198,7 +198,7 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
         if (resumed || this.lastEventId === null) throw dropped(cause);
         resumed = true;
         this.controller.abort();
-        await pause(backoffMs(0, null));
+        await pause(backoffMs(0, null), this.options.signal);
         const next = await this.client.send(
           resumeRequest(this.prepared, this.conversationId, this.lastEventId),
           this.options,
@@ -218,11 +218,16 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
     }
   }
 
-  /** Drain the turn and return the whole answer: every delta joined. The accumulation helper -- iterate for the frames, call this for the whole. */
-  async accumulate(): Promise<string> {
+  /** Drain the turn and return the whole answer: every delta joined. Iterate for the frames, call this for the whole. */
+  async finalText(): Promise<string> {
     let text = "";
     for await (const piece of this.text()) text += piece;
     return text;
+  }
+
+  /** @deprecated The earlier name of `finalText`, kept as its alias. */
+  accumulate(): Promise<string> {
+    return this.finalText();
   }
 
   abort(): void {
@@ -572,7 +577,8 @@ export class DeviceAuth {
               code: "expired_token",
             });
       }
-      await pause(intervalS * 1000);
+      // An abort ends the wait at once and is reported as the login's own.
+      await pause(intervalS * 1000, options.signal).catch(() => undefined);
       if (options.signal?.aborted) throw new MatterWaveError("The device login was aborted.");
       try {
         return await this.poll(code.device_code, request);

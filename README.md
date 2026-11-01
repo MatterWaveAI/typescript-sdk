@@ -2,8 +2,9 @@
 
 The TypeScript client for the MatterWave API: the OpenAI-compatible `/v1`
 surface, typed, with a streaming async iterator, retries that honour
-`Retry-After`, and the server's `X-Request-Id` on every error. `fetch`-based,
-so it runs in Node 18+ and in browsers; ESM and CommonJS builds, one `.d.ts`.
+`Retry-After`, and the server's `X-Request-Id` on every error. `fetch`-based
+with no dependencies, so it runs in Node 20+, Bun, Deno and browsers -- CI runs
+it in each; ESM and CommonJS builds, each with its own declarations.
 
 ```
 npm install @matterwave/sdk
@@ -21,8 +22,11 @@ const client = new MatterWave({
 ```
 
 Both options fall back to `MATTERWAVE_API_KEY` and `MATTERWAVE_BASE_URL` when a
-`process.env` exists (Node, or a bundler that provides one); in a browser pass
-them. The base URL is the origin the app is served from; the OpenAI-style form
+`process.env` exists (Node, Bun, Deno with `--allow-env`, or a bundler that
+provides one); in a browser pass them. A key in a page's JavaScript is readable
+by anyone who loads the page, so in a browser the client refuses one unless
+`dangerouslyAllowBrowser: true` says that exposure is understood (a key scoped
+and rate-limited for exactly that page); call the API from a server otherwise. The base URL is the origin the app is served from; the OpenAI-style form
 ending in `/v1` is accepted too. Keys are created under Settings > API keys in
 the app and shown once.
 
@@ -86,11 +90,52 @@ Connection failures are `APIConnectionError`; a per-attempt timeout
 (`timeoutMs`, default 60s, covering the connection and headers, not a stream's
 body) is `APITimeoutError`.
 
-A 429 whose code is `rate_limit_exceeded` and any 5xx (and connection errors)
-are retried up to `maxRetries` times (default 2) with exponential backoff and
-jitter, or for exactly `Retry-After` when the server sends one. A 429 whose
-code is `insufficient_quota` is thrown at once. A streamed request is retried
-only before its stream starts.
+A 429 whose code is `rate_limit_exceeded` is retried up to `maxRetries` times
+(default 2) with exponential backoff and jitter, or for exactly `Retry-After`
+when the server sends one. A 429 whose code is `insufficient_quota` is thrown
+at once, and so is a 429 or 5xx whose `Retry-After` is longer than
+`maxRetryWaitMs` (default 60 seconds), with the delay in `err.retryAfter`; an
+abort on the call's `signal` ends a wait at once. A 5xx or a dropped
+connection is retried the same way for a request
+that is safe to send twice (GET, PUT, DELETE, and the read-only MCP calls). A
+POST or PATCH -- a message, a key, an upload -- is sent again only when the
+connection was never made: after a 5xx, a timeout or a reply cut short, the
+first copy may already have taken effect, so the error is thrown instead. A
+streamed request is retried only before its stream starts.
+
+Every write (any method but GET) carries an `Idempotency-Key` header: a fresh
+UUID per call, the same on each of its retries, so the server can recognise a
+repeat. `{ idempotencyKey }` in a call's options supplies your own, for a write
+whose retries may come from another process. The API does not yet answer a
+repeated key with the first result, so the narrower retry rule for writes
+above still applies.
+
+### Logging and deprecations
+
+`logLevel: "info"` (or `MATTERWAVE_LOG=info` where there is an environment)
+logs one line per response or failure -- method, path, status, request id and
+time taken; `"debug"` adds each attempt as it goes out and each wait before a
+retry. Bodies and headers are never logged. Lines go to `console` unless a
+`logger` is passed.
+
+When the API marks a route for retirement (`Deprecation` and `Sunset`
+headers), the first call to it warns through `logger.warn`, naming the route
+and its dates, once per route per process. See [VERSIONING.md](VERSIONING.md)
+for what each release supports.
+
+### Per-call settings
+
+`timeoutMs`, `maxRetries` and `maxRetryWaitMs` are set on the client and apply
+to every call. Every method takes a last `RequestOptions` argument that gives
+the call its own -- with `signal` and `headers` besides:
+
+```ts
+await client.conversations.compact(conversationId, { timeoutMs: 600_000, maxRetries: 0 });
+```
+
+`client.withOptions({ timeoutMs, maxRetries, maxRetryWaitMs, defaultHeaders })`
+returns the client with those settings replaced, sharing its `fetch` and hooks,
+for code that makes several calls under the same bounds.
 
 ## Tools, structured output and embeddings
 
@@ -421,12 +466,41 @@ copy's SHA-256 so a hand edit fails, and compares it with the source whenever
 the Python SDK sits beside this checkout (or `MATTERWAVE_AGENT_CONTRACT` names
 its `contract.json`, as CI does after cloning it).
 
+## Python and TypeScript
+
+The two SDKs are one client in two languages: a name here in snake_case is the
+same name there in camelCase, and `tests/parity.test` (`test_parity.py`,
+`parity.test.ts`) holds each to the other's public surface. Where they differ
+on purpose, `tests/parity.json` says why; the differences a caller meets are:
+
+| Python | TypeScript | Why |
+| --- | --- | --- |
+| `timeout=`, `max_retry_wait=` (seconds) | `timeoutMs`, `maxRetryWaitMs` | each language's unit for time |
+| `client.with_options(...)` for any call | the same per call in `RequestOptions`, or `client.withOptions(...)` | a TypeScript call takes an options argument; a Python one would need a keyword on every method |
+| `with_options(idempotency_key=...)` | `{ idempotencyKey }` in a call's options or `withOptions` | as above |
+| `extra_headers=`, `extra_query=`, `extra_body=` on chat and embeddings | `extraHeaders`, `extraQuery`, `extraBody` in any call's options (`headers` is `extraHeaders`' older name) | the OpenAI-compatible calls are where the API adds fields first |
+| `stream.final_text()` | `stream.finalText()` (`accumulate()` is its older name) | |
+| `stream.close()`, `client.close()` | `stream.abort()`; the client has no pool to close | httpx holds connections; fetch cancels by signal |
+| `http_client=` | `fetch` | the transport each language sends with |
+| `on_request` receives the `Request` | `onRequest` receives `{ method, path }` | a TypeScript body may be a form or a stream, not something to hand a logger |
+| `MATTERWAVE_LOG` or the `matterwave_sdk` logger | `logLevel` and `logger` (`MATTERWAVE_LOG` where there is an environment) | Python has a logging module; JavaScript does not |
+| `APIDeprecationWarning`, a warning | `logger.warn` | each language's way to warn |
+| | `dangerouslyAllowBrowser` | only a browser puts a key in reach of a page's visitors |
+
+A configuration mistake (no base URL, a negative retry count) is a
+`MatterWaveConfigError` in both, under `MatterWaveError`; in Python it is a
+`ValueError` as well. Python checks other arguments with `ValueError`, as
+Python does; TypeScript throws `MatterWaveConfigError` for those too.
+
 ## Development
 
 ```
 npm install
 npm run typecheck && npm run lint && npm test && npm run build
 ```
+
+`pre-commit install` once per clone runs gitleaks on every commit, the same
+secret scan CI runs over the whole history.
 
 `tests/openapi-contract.test.ts` checks this client against the app's
 exported OpenAPI document, `docs/developers/openapi.json` in the app repo,

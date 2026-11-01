@@ -1,6 +1,6 @@
 /**
  * @matterwave/sdk: the MatterWave API's OpenAI-compatible `/v1` surface,
- * typed, for Node 18+ and browsers.
+ * typed, for Node 20+, Bun, Deno and browsers.
  *
  *     import { MatterWave } from "@matterwave/sdk";
  *     const client = new MatterWave({ apiKey: "mw_...", baseUrl: "https://your-matterwave.example" });
@@ -31,10 +31,15 @@ export {
   API_KEY_ENV,
   BASE_URL_ENV,
   DEFAULT_MAX_RETRIES,
+  DEFAULT_MAX_RETRY_WAIT_MS,
   DEFAULT_TIMEOUT_MS,
+  IDEMPOTENCY_HEADER,
+  newIdempotencyKey,
   setSleep,
 } from "./client.js";
-export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
+export type { ClientOptions, ClientOverrides, Fetch, RequestOptions, Schema, Sleep } from "./client.js";
+export { LOG_ENV } from "./log.js";
+export type { LogLevel, Logger } from "./log.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
