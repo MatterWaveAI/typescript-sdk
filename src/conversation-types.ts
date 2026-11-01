@@ -96,7 +96,7 @@ export const APP_OPERATIONS = {
   "admin.announcements.delete": ["DELETE", "/api/admin/announcements/{announcement_id}"],
   "entitlements.get": ["GET", "/api/entitlements"],
   "account.rename": ["PATCH", "/api/me"],
-  "account.delete": ["DELETE", "/api/me"],
+  "account.deleteAccount": ["DELETE", "/api/me"],
   "account.acceptTerms": ["POST", "/api/me/accept-terms"],
   "account.completeOnboarding": ["POST", "/api/me/onboarding/complete"],
   "account.changePassword": ["POST", "/api/me/password"],

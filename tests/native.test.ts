@@ -23,8 +23,34 @@ import type { AnnouncementSeverity } from "../src/index.js";
 import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./helpers.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ROUTES = resolve(here, "../../../api/matterwave");
-const NATIVE = ["keys", "usage", "audit", "webhooks", "attachments", "library", "shares", "notifications", "announcements", "entitlements"];
+// The app's routers: a monorepo checkout keeps them beside this one; the
+// sibling checkouts of this workspace keep them one repo over.
+const ROUTES = ["../../../api/matterwave", "../../../matterwave-app/api/matterwave"]
+  .map((p) => resolve(here, p))
+  .find((p) => existsSync(p))!;
+const NATIVE = [
+  "keys",
+  "usage",
+  "audit",
+  "webhooks",
+  "attachments",
+  "library",
+  "shares",
+  "notifications",
+  "announcements",
+  "entitlements",
+  "account",
+  "exports",
+  "imports",
+  "members",
+  "org",
+  "billing",
+  "passkeys",
+  "mfa",
+  "accounts",
+  "speech",
+  "edge",
+];
 
 const KEY_ID = "key-0001";
 const ENDPOINT_ID = "whe-0001";
@@ -38,11 +64,14 @@ function nativeOperations(): [string, readonly [string, string]][] {
 
 /** Every (method, path) the app's routers declare, read from the source. The
  *  native routes live in the routes_* files, and notifications and
- *  announcements carry their own routers beside them. */
+ *  announcements carry their own routers beside them; the account extras
+ *  (app.py), passkeys, accounts, speech and edge pairing too. */
 function apiRoutes(): Set<string> {
   const found = new Set<string>();
   const names = readdirSync(ROUTES).filter(
-    (f) => /^routes_.*\.py$/.test(f) || f === "notifications.py" || f === "announcements.py",
+    (f) =>
+      /^routes_.*\.py$/.test(f) ||
+      ["notifications.py", "announcements.py", "app.py", "passkeys.py", "accounts.py", "speech.py", "edge_pairing.py"].includes(f),
   );
   for (const name of names) {
     const source = readFileSync(join(ROUTES, name), "utf-8");
