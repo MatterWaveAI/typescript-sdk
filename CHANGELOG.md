@@ -136,6 +136,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner or admin by membership row and refuse an API key.
 - `Plan`, `PlanCatalog`, `PlanEvent`, `Invoice`, `BillingStatus`,
   `DunningState` and `Collection` types.
+- `client.passkeys` — passkeys, WebAuthn relayed through the identity
+  provider (T-228): `list()`, `startRegistration()`,
+  `verifyRegistration(id, { credential, name })`, `rename(id, { name })`,
+  `remove(id)` for the signed-in, and the sign-in ceremony --
+  `startLogin({ email, auth_request })` and
+  `finishLogin({ challenge, credential })`, anonymous, whose `options`
+  feed `navigator.credentials` and whose sealed `challenge` comes back
+  untouched.
+- `client.mfa` — the second factor (T-228): `state()`,
+  `startTotp()`, `confirmTotp({ code })` (the ten recovery codes come back
+  shown-once), `removeTotp({ code? | recovery_code? })` (a proof is
+  required; refused outright for a member of an org that requires MFA),
+  `reissueRecoveryCodes({ code })`, and the sign-in code step --
+  `verify({ challenge, code? | recovery_code? })`, `enrolStart({
+  challenge })`, `enrolConfirm({ challenge, code })`, anonymous, the
+  sealed challenge the password step handed out being the credential.
+  Code shapes are checked before an attempt is spent: six digits (or
+  eight), spaces removed.
+- `client.accounts` — several accounts signed in on one browser (T-228):
+  `list()`, `switch({ slot })`, `logout(slot)`, `logoutAll()`. These ride
+  the session cookies (pass the browser's via `defaultHeaders`), answer
+  only what the envelopes already told the browser, and are anonymous on
+  purpose; slots are 1 to 3.
+- `client.speech` — dictation's server route (T-228):
+  `transcribe({ file, filename?, contentType?, language? })` (`POST
+  /api/speech/transcribe`, multipart, one clip up to 10 MiB, the words
+  back, nothing kept). Media types the route does not take are refused
+  here before the upload.
+- The passkey, MFA, account-roster and transcription wire types
+  (`Passkey`, `PasskeyList`, `TotpEnrolment`, `MfaState`,
+  `RecoveryCodesReissued`, `SignedInAccount`, `AccountRoster`,
+  `Transcription`, and the params interfaces beside them).
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.

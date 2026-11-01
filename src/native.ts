@@ -29,6 +29,10 @@ import type { Conversation, SearchResults } from "./conversation-types.js";
 import { query, segment } from "./conversations.js";
 import type {
   AccountDeleted,
+  AccountLoggedOut,
+  AccountRoster,
+  AccountSwitched,
+  AccountSwitchParams,
   AcceptTermsParams,
   AdminAnnouncement,
   AdminAnnouncementList,
@@ -84,6 +88,11 @@ import type {
   MemberBudget,
   MemberBudgetList,
   MemberList,
+  MfaEnrolConfirmParams,
+  MfaEnrolConfirmed,
+  MfaLoginParams,
+  MfaState,
+  MfaVerified,
   ModelPolicy,
   NotificationList,
   NotificationListParams,
@@ -97,6 +106,14 @@ import type {
   OrgShareList,
   OrgShareRevoked,
   OrgUsage,
+  Passkey,
+  PasskeyList,
+  PasskeyLoginFinishParams,
+  PasskeyLoginFinished,
+  PasskeyLoginStart,
+  PasskeyRegistrationParams,
+  PasskeyRegistrationStart,
+  PasskeyRenameParams,
   PasswordChangeParams,
   PasswordChanged,
   PlanCatalog,
@@ -105,6 +122,7 @@ import type {
   ReadAllNotifications,
   ReadNotification,
   RecoveryCodeMinted,
+  RecoveryCodesReissued,
   RenameOrgParams,
   RenameParams,
   SessionList,
@@ -126,6 +144,13 @@ import type {
   StartEmailChangeParams,
   Tag,
   TermsAccepted,
+  TotpCodeParams,
+  TotpConfirmed,
+  TotpEnrolment,
+  TotpProof,
+  TotpRemoved,
+  TranscribeParams,
+  Transcription,
   UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
@@ -1384,6 +1409,261 @@ export class Billing extends Resource {
   /** `GET /api/billing/invoices`: the org's invoices, newest first, with Stripe's hosted page and PDF links. Owner or admin. */
   invoices(options: RequestOptions = {}): Promise<WithRequestId<InvoiceList>> {
     return this.call("GET", "/api/billing/invoices", undefined, options);
+  }
+}
+
+// --- passkeys ------------------------------------------------------------------
+
+const PASSKEY_NAME_MAX = 64;
+
+function checkPasskeyName(name: string): void {
+  const cleaned = name.trim();
+  if (!cleaned) throw new MatterWaveConfigError("give the passkey a name, like the device it lives on");
+  if (cleaned.length > PASSKEY_NAME_MAX) {
+    throw new MatterWaveConfigError(`name must be at most ${PASSKEY_NAME_MAX} characters`);
+  }
+}
+
+function passkeyPath(passkeyId: string, suffix = ""): string {
+  return `/api/me/passkeys/${segment("passkeyId", passkeyId)}${suffix}`;
+}
+
+/**
+ * Passkeys (WebAuthn), relayed through the identity provider. The
+ * registration half (`startRegistration`, `verifyRegistration`, `rename`,
+ * `remove`) acts for the signed-in principal; the browser on the same
+ * origin runs the ceremony with the `options` each answer carries. The
+ * sign-in half (`startLogin`, `finishLogin`) is anonymous -- the person is
+ * proving who they are, not yet proven -- and a passkey with user
+ * verification is a complete sign-in, so no TOTP step follows it.
+ */
+export class Passkeys extends Resource {
+  /** `GET /api/me/passkeys`: the caller's passkeys, the relying-party id, and the cap (an account holds at most ten; 409 past it). */
+  list(options: RequestOptions = {}): Promise<WithRequestId<PasskeyList>> {
+    return this.call("GET", "/api/me/passkeys", undefined, options);
+  }
+
+  /** `POST /api/me/passkeys/start`: the creation options for `navigator.credentials.create`. Nothing is recorded until the attestation is verified. */
+  startRegistration(options: RequestOptions = {}): Promise<WithRequestId<PasskeyRegistrationStart>> {
+    return this.call("POST", "/api/me/passkeys/start", undefined, options);
+  }
+
+  /** `POST /api/me/passkeys/{id}/verify` (201): the browser's attestation, back to the provider; on acceptance the row that names it, and the account's history gains the event. */
+  verifyRegistration(
+    passkeyId: string,
+    params: PasskeyRegistrationParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<Passkey>> {
+    checkPasskeyName(params.name);
+    return this.call("POST", passkeyPath(passkeyId, "/verify"), params, options);
+  }
+
+  /** `PATCH /api/me/passkeys/{id}`: rename it. `NotFoundError` for one that is not the caller's. */
+  rename(
+    passkeyId: string,
+    params: PasskeyRenameParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<Passkey>> {
+    checkPasskeyName(params.name);
+    return this.call("PATCH", passkeyPath(passkeyId), params, options);
+  }
+
+  /** `DELETE /api/me/passkeys/{id}`: remove it -- the provider first, so the list never claims a credential that cannot sign in. */
+  remove(passkeyId: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", passkeyPath(passkeyId), options);
+  }
+
+  /** `POST /api/auth/passkey/start`: the request options for `navigator.credentials.get`, by address. An address with no account and one with no passkey are the same 404. Anonymous. */
+  startLogin(
+    params: { email: string; auth_request: string },
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<PasskeyLoginStart>> {
+    if (!params.email?.includes("@")) throw new MatterWaveConfigError("email must be an email address");
+    if (!params.auth_request) throw new MatterWaveConfigError("auth_request must be non-empty");
+    return this.callAnon("POST", "/api/auth/passkey/start", { ...params, email: params.email.trim().toLowerCase() }, options);
+  }
+
+  /** `POST /api/auth/passkey/finish`: the browser's assertion, back against the sealed challenge; the answer is the redirect that finishes the sign-in. Anonymous. */
+  finishLogin(
+    params: PasskeyLoginFinishParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<PasskeyLoginFinished>> {
+    if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
+    return this.callAnon("POST", "/api/auth/passkey/finish", params, options);
+  }
+}
+
+// --- mfa -------------------------------------------------------------------------
+
+/** Six digits (or eight, as some authenticators show), spaces people type between the halves removed. */
+function checkTotpCode(code: string, what: string): void {
+  const digits = code.split(/\s+/).join("");
+  if (!/^\d{6}$|^\d{8}$/.test(digits)) {
+    throw new MatterWaveConfigError(`${what} must be the six digits from your authenticator`);
+  }
+}
+
+function checkProof(proof: TotpProof): void {
+  if (!proof.code && !proof.recovery_code) {
+    throw new MatterWaveConfigError("Enter a code from your authenticator or one of your recovery codes.");
+  }
+}
+
+/**
+ * The second factor: enrolment and removal for the signed-in person, and
+ * the code step of a sign-in. The signed-in half is `/api/me/mfa/*`; the
+ * `/api/auth/mfa*` half belongs to a sign-in that has no session yet --
+ * what it acts for is named by the sealed `challenge` the password step
+ * handed out, and those methods are anonymous. Every code check is
+ * rate-limited per person by the platform, so a wrong code is expensive;
+ * the client checks the shape before spending an attempt.
+ */
+export class Mfa extends Resource {
+  /** `GET /api/me/mfa`: whether an authenticator is confirmed, how many recovery codes are unspent, and whether the org insists on one. */
+  state(options: RequestOptions = {}): Promise<WithRequestId<MfaState>> {
+    return this.call("GET", "/api/me/mfa", undefined, options);
+  }
+
+  /** `POST /api/me/mfa/totp/start`: the secret, the otpauth URI and its QR. 409 when one is already enrolled. */
+  startTotp(options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
+    return this.call("POST", "/api/me/mfa/totp/start", undefined, options);
+  }
+
+  /** `POST /api/me/mfa/totp/confirm`: the first code makes it live, and the ten recovery codes come back -- shown once; only their hashes exist after this response. */
+  confirmTotp(params: TotpCodeParams, options: RequestOptions = {}): Promise<WithRequestId<TotpConfirmed>> {
+    checkTotpCode(params.code, "code");
+    return this.call("POST", "/api/me/mfa/totp/confirm", params, options);
+  }
+
+  /**
+   * `DELETE /api/me/mfa/totp`: remove the authenticator, on proof of it
+   * (or of a recovery code, which is burned). Refused outright for a
+   * member of an org that requires one: the policy is the owner's to
+   * relax, not the member's to step around.
+   */
+  removeTotp(params: TotpProof, options: RequestOptions = {}): Promise<WithRequestId<TotpRemoved>> {
+    checkProof(params);
+    return this.call("DELETE", "/api/me/mfa/totp", params, options);
+  }
+
+  /** `POST /api/me/mfa/recovery-codes`: ten new codes, the old ones retired, on a code from the authenticator -- a lost sheet must not be what authorises its own replacement. */
+  reissueRecoveryCodes(params: TotpCodeParams, options: RequestOptions = {}): Promise<WithRequestId<RecoveryCodesReissued>> {
+    checkTotpCode(params.code, "code");
+    return this.call("POST", "/api/me/mfa/recovery-codes", params, options);
+  }
+
+  /** `POST /api/auth/mfa`: the code step of a sign-in. A recovery code is burned whether or not the sign-in then finishes. Anonymous -- the challenge is the credential. */
+  verify(params: MfaLoginParams, options: RequestOptions = {}): Promise<WithRequestId<MfaVerified>> {
+    if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
+    checkProof(params);
+    if (params.code !== undefined) checkTotpCode(params.code, "code");
+    return this.callAnon("POST", "/api/auth/mfa", params, options);
+  }
+
+  /** `POST /api/auth/mfa/enrol/start`: the org-policy path -- an authenticator for a sign-in parked on `mfa_enrolment_required`. Only a challenge minted for enrolment opens this door. Anonymous. */
+  enrolStart(params: { challenge: string }, options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
+    if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
+    return this.callAnon("POST", "/api/auth/mfa/enrol/start", params, options);
+  }
+
+  /** `POST /api/auth/mfa/enrol/confirm`: confirm the registration, hand out the recovery codes, and hand back a fresh challenge -- the sign-in still finishes through `verify` with the next code. Anonymous. */
+  enrolConfirm(params: MfaEnrolConfirmParams, options: RequestOptions = {}): Promise<WithRequestId<MfaEnrolConfirmed>> {
+    if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
+    checkTotpCode(params.code, "code");
+    return this.callAnon("POST", "/api/auth/mfa/enrol/confirm", params, options);
+  }
+}
+
+// --- account switching ------------------------------------------------------------
+
+const MAX_PARKED = 3;
+
+/**
+ * Several accounts signed in on one browser, one of them acting. The
+ * acting account is the session cookie; the others are parked beside it.
+ * These routes answer only what the envelopes already told the browser --
+ * an email, a name, an org name -- never account data, and they ride the
+ * session cookies: a non-browser caller passes theirs via
+ * `defaultHeaders`, and none of them read a bearer key.
+ */
+export class Accounts extends Resource {
+  /** `GET /api/accounts`: who is signed in on this browser, acting one first, and whether there is room for another. Anonymous on purpose. */
+  list(options: RequestOptions = {}): Promise<WithRequestId<AccountRoster>> {
+    return this.callAnon("GET", "/api/accounts", undefined, options);
+  }
+
+  /** `POST /api/accounts/switch`: make a parked account the acting one; the caller reloads afterwards. 404 for a slot that is no longer signed in. */
+  switch(params: AccountSwitchParams, options: RequestOptions = {}): Promise<WithRequestId<AccountSwitched>> {
+    if (!(params.slot >= 1 && params.slot <= MAX_PARKED)) {
+      throw new MatterWaveConfigError(`slot must be 1 to ${MAX_PARKED}, got ${params.slot}`);
+    }
+    return this.callAnon("POST", "/api/accounts/switch", params, options);
+  }
+
+  /** `POST /api/accounts/{slot}/logout`: sign one parked account out; the acting one signs out through `POST /api/logout`. */
+  logout(slot: number, options: RequestOptions = {}): Promise<WithRequestId<AccountLoggedOut>> {
+    if (!(slot >= 1 && slot <= MAX_PARKED)) {
+      throw new MatterWaveConfigError(`slot must be 1 to ${MAX_PARKED}, got ${slot}`);
+    }
+    return this.callAnon("POST", `/api/accounts/${segment("slot", String(slot))}/logout`, undefined, options);
+  }
+
+  /** `POST /api/accounts/logout-all`: every account on this browser, acting and parked. The answer carries the provider's end-session endpoint when there is one. */
+  logoutAll(options: RequestOptions = {}): Promise<WithRequestId<AccountLoggedOut>> {
+    return this.callAnon("POST", "/api/accounts/logout-all", undefined, options);
+  }
+}
+
+// --- speech -----------------------------------------------------------------------
+
+const ACCEPTED_AUDIO_TYPES: readonly string[] = [
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/flac",
+  "audio/x-m4a",
+  "audio/m4a",
+  "audio/aac",
+  "video/webm",
+  "video/mp4",
+];
+
+/**
+ * Dictation's server route: one short clip in, its text out, nothing
+ * kept. Up to 10 MiB of audio, thirty clips a minute per person, with an
+ * optional BCP 47 language hint. The audio is held in memory for the
+ * length of the request and nowhere else: not logged, not stored.
+ */
+export class Speech extends Resource {
+  /** `POST /api/speech/transcribe`: the words. 404 `speech_not_configured` on a deployment with no transcriber; 415 for a media type it does not take. */
+  transcribe(params: TranscribeParams, options: RequestOptions = {}): Promise<WithRequestId<Transcription>> {
+    const filename = params.filename || (params.file instanceof File ? params.file.name : "clip");
+    if (!filename) throw new MatterWaveConfigError("filename must be non-empty");
+    const mediaType = (params.file instanceof Blob ? params.file.type : params.contentType ?? "")
+      .split(";")[0]!
+      .trim()
+      .toLowerCase();
+    if (mediaType && !ACCEPTED_AUDIO_TYPES.includes(mediaType)) {
+      throw new MatterWaveConfigError(
+        `Send an audio clip (${ACCEPTED_AUDIO_TYPES.join(", ")}), got ${mediaType}`,
+      );
+    }
+    if (params.language !== undefined) {
+      if (!params.language || params.language.length > 35) {
+        throw new MatterWaveConfigError("language must be a BCP-47 tag of at most 35 characters");
+      }
+    }
+    const blob =
+      params.file instanceof Blob ? params.file : new Blob([params.file as BlobPart], { type: params.contentType });
+    const form = new FormData();
+    form.append("file", blob, filename);
+    if (params.language !== undefined) form.append("language", params.language);
+    return this.call("POST", "/api/speech/transcribe", form, options);
   }
 }
 

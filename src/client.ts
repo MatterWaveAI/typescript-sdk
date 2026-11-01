@@ -32,7 +32,7 @@ import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
-import { Account } from "./native.js";
+import { Account, Accounts, Mfa, Passkeys, Speech } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
@@ -585,6 +585,14 @@ export class MatterWave {
   readonly org: Org;
   /** Plans and billing: the catalog, the move to Free, checkout, portal, status, invoices. */
   readonly billing: Billing;
+  /** Passkeys: registration for the signed-in, the sign-in ceremony for everyone. */
+  readonly passkeys: Passkeys;
+  /** The second factor: TOTP enrolment, recovery codes, the sign-in code step. */
+  readonly mfa: Mfa;
+  /** Several accounts on one browser: the roster, the switch, the sign-outs. */
+  readonly accounts: Accounts;
+  /** Dictation: one short clip in, its text out. */
+  readonly speech: Speech;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -633,6 +641,10 @@ export class MatterWave {
     this.members = new Members(this);
     this.org = new Org(this);
     this.billing = new Billing(this);
+    this.passkeys = new Passkeys(this);
+    this.mfa = new Mfa(this);
+    this.accounts = new Accounts(this);
+    this.speech = new Speech(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

@@ -1272,6 +1272,188 @@ export type BillingStatus = Entitlements & {
   dunning: DunningState | null;
 };
 
+// --- passkeys -------------------------------------------------------------------
+
+/** One registered passkey, as the Security pane lists it: what the person called it and when it was made. The credential itself lives at the identity provider. */
+export interface Passkey {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+/** `GET /api/me/passkeys`: the caller's passkeys, the relying-party id the browser ceremony needs, and the cap. */
+export interface PasskeyList {
+  passkeys: Passkey[];
+  rp_id: string;
+  max: number;
+}
+
+/** `POST /api/me/passkeys/start`: the creation options for `navigator.credentials.create`, and the id to verify the attestation under. */
+export interface PasskeyRegistrationStart {
+  passkey_id: string;
+  options: Record<string, unknown>;
+}
+
+/** The body of `passkeys.verifyRegistration`: the browser's attestation, and the name the row keeps. */
+export interface PasskeyRegistrationParams {
+  credential: Record<string, unknown>;
+  name: string;
+}
+
+/** The body of `passkeys.rename`. */
+export interface PasskeyRenameParams {
+  name: string;
+}
+
+/** `POST /api/auth/passkey/start`: the request options for `navigator.credentials.get`, with the provider's session sealed beside them as `challenge` -- opaque, hand it back. */
+export interface PasskeyLoginStart {
+  challenge: string;
+  options: Record<string, unknown>;
+}
+
+/** The body of `passkeys.finishLogin`. */
+export interface PasskeyLoginFinishParams {
+  challenge: string;
+  credential: Record<string, unknown>;
+}
+
+/** The answer to `finishLogin`: where to send the browser to finish the sign-in. */
+export interface PasskeyLoginFinished {
+  redirect: string;
+}
+
+// --- mfa ------------------------------------------------------------------------
+
+/** `GET /api/me/mfa`: what the Security section shows. `org_requires_mfa` is why Remove is unavailable for a member of an org that insists. */
+export interface MfaState {
+  totp_enrolled: boolean;
+  recovery_codes_left: number;
+  org_requires_mfa: boolean;
+}
+
+/** `POST /api/me/mfa/totp/start`: the secret, the otpauth URI, and the QR as an SVG data URI. Nothing is live until the first code confirms it. */
+export interface TotpEnrolment {
+  secret: string;
+  uri: string;
+  qr_svg: string;
+}
+
+/** The body of `mfa.confirmTotp` and `mfa.reissueRecoveryCodes`: the current six digits. */
+export interface TotpCodeParams {
+  code: string;
+}
+
+/** The answer to `confirmTotp`: the ten recovery codes, shown this once. */
+export interface TotpConfirmed {
+  totp_enrolled: true;
+  recovery_codes: string[];
+  recovery_codes_left: number;
+}
+
+/** A code from the authenticator, or a recovery code -- one or the other, never both. The recovery code is burned whether or not what follows succeeds. */
+export interface TotpProof {
+  code?: string;
+  recovery_code?: string;
+}
+
+/** The answer to `removeTotp`. */
+export interface TotpRemoved {
+  totp_enrolled: false;
+  recovery_codes_left: number;
+}
+
+/** The answer to `reissueRecoveryCodes`: ten new codes, the old ones retired, shown this once. */
+export interface RecoveryCodesReissued {
+  recovery_codes: string[];
+  recovery_codes_left: number;
+}
+
+/** The body of `mfa.verify`: the sealed challenge the password step handed out, and the code or recovery code that proves it. */
+export interface MfaLoginParams {
+  challenge: string;
+  code?: string;
+  recovery_code?: string;
+}
+
+/** The answer to `mfa.verify`: where to send the browser to finish the sign-in, and, on a recovery code, how many are left. */
+export interface MfaVerified {
+  redirect: string;
+  recovery_codes_left?: number;
+}
+
+/** The body of `mfa.enrolConfirm`: the enrolment challenge and the first code. */
+export interface MfaEnrolConfirmParams {
+  challenge: string;
+  code: string;
+}
+
+/** The answer to `enrolConfirm`: the recovery codes, and a fresh challenge that now owes the `totp` factor -- the sign-in finishes through `mfa.verify` with the NEXT code. */
+export interface MfaEnrolConfirmed {
+  recovery_codes: string[];
+  challenge: string;
+}
+
+// --- account switching ------------------------------------------------------------
+
+/**
+ * One signed-in account as the browser holds it: `slot` 0 is the acting
+ * one, 1 and up are parked. Answers only what the session envelopes
+ * already told this browser -- never account data. Rides the session
+ * cookies, so a non-browser caller passes theirs via `defaultHeaders`.
+ */
+export interface SignedInAccount {
+  slot: number;
+  current: boolean;
+  subject: string;
+  email: string | null;
+  name: string | null;
+  org_name: string | null;
+}
+
+/** `GET /api/accounts`: who is signed in on this browser, acting one first, and whether there is room for another. Anonymous on purpose. */
+export interface AccountRoster {
+  accounts: SignedInAccount[];
+  max: number;
+  room: boolean;
+}
+
+/** The body of `accounts.switch`: which parked slot to make the acting one. */
+export interface AccountSwitchParams {
+  slot: number;
+}
+
+/** The answer to `accounts.switch`. */
+export interface AccountSwitched {
+  status: string;
+  subject: string;
+  email: string | null;
+}
+
+/** The answer to `accounts.logout` and `accounts.logoutAll`. */
+export interface AccountLoggedOut {
+  status: string;
+  /** Where the SPA sends the browser to end the provider session, under OIDC. */
+  end_session_endpoint?: string;
+}
+
+// --- speech -----------------------------------------------------------------------
+
+/** The body of `speech.transcribe`: one short clip, up to 10 MiB, with an optional BCP 47 `language` hint. The audio is held for the length of the request and nowhere else. */
+export interface TranscribeParams {
+  /** The clip: a `Blob` (a `File` is one; its `type` is the content type), or bytes with `contentType`. */
+  file: Blob | ArrayBuffer | Uint8Array;
+  filename?: string;
+  /** The clip's media type when `file` is bare bytes; a `Blob`'s own `type` wins. */
+  contentType?: string;
+  /** A BCP 47 tag such as `en-GB`; at most 35 characters. */
+  language?: string;
+}
+
+/** The answer to `transcribe`: the words. Nothing here sends a message; the text comes back for the caller to review. */
+export interface Transcription {
+  text: string;
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**
