@@ -795,6 +795,133 @@ export interface UploadImportParams {
   filename: string;
 }
 
+// --- members, invites, join -----------------------------------------------------
+
+/** An org role. Ownership moves only between owners; nobody demotes or removes the last owner. */
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
+
+/**
+ * One member, as `GET /api/org/members` lists them and the role, invite
+ * and join writes answer. `state` is `active`, `suspended` or
+ * `unverified`; `last_seen_at` is null for someone who has never signed
+ * in, which is how an admin spots a paid seat nobody uses.
+ */
+export interface OrgMember {
+  subject: string;
+  email: string | null;
+  name: string | null;
+  role: OrgRole | (string & {});
+  state: string;
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+/** The seats against the plan: `max` null when there is no cap, `billed` the seats the org pays for on a per-seat plan (null on any other). */
+export interface MemberSeats {
+  used: number;
+  max: number | null;
+  billed: number | null;
+}
+
+/** `GET /api/org/members`: every member, the caller's own `role`, and the seats. */
+export interface MemberList {
+  data: OrgMember[];
+  role: OrgRole | (string & {});
+  seats: MemberSeats;
+}
+
+/** The body of `members.setRole`. */
+export interface SetRoleParams {
+  role: OrgRole;
+}
+
+/** How an invite or a link stands: `pending` until accepted, expired, used up or revoked. */
+export type InviteStatus = "pending" | "accepted" | "expired" | "revoked" | "used_up" | "active";
+
+/**
+ * One mailed invite, as `GET /api/org/invites` lists it. Never the token:
+ * the hash is the row's, the plaintext went out in the mail.
+ */
+export interface OrgInvite {
+  id: string;
+  email: string;
+  role: OrgRole | (string & {});
+  invited_by: string;
+  created_at: string;
+  expires_at: string;
+  status: InviteStatus | (string & {});
+}
+
+/** `GET /api/org/invites`. */
+export interface InviteList {
+  data: OrgInvite[];
+}
+
+/** The answer to `create` and `resend`: the invite, whether its mail went, and the reason when it did not (the row exists either way; a resend is the recovery). */
+export interface CreatedInvite extends OrgInvite {
+  mail: "sent" | "failed";
+  detail?: string;
+}
+
+/** The body of `members.createInvite`. */
+export interface CreateInviteParams {
+  email: string;
+  role?: OrgRole;
+}
+
+/** What the anonymous `/join` page asks of a mailed invite: whose org, which address, which role, and whether the link still works. */
+export interface InvitePreview {
+  org_name: string;
+  email: string;
+  role: OrgRole | (string & {});
+  expires_at: string;
+  status: InviteStatus | (string & {});
+}
+
+/** What the anonymous `/join` page asks of a link: whose org, which role, whether it still works -- not how many have used it. */
+export interface JoinPreview {
+  org_name: string;
+  role: OrgRole | (string & {});
+  expires_at: string;
+  status: InviteStatus | (string & {});
+}
+
+/**
+ * One invite link, as `GET /api/org/invite-links` lists it. Never the
+ * token: only its hash is kept, so the plaintext exists in the response
+ * that made the link and wherever the owner pasted it.
+ */
+export interface InviteLinkRow {
+  id: string;
+  role: OrgRole | (string & {});
+  max_uses: number;
+  uses: number;
+  created_by: string;
+  created_at: string;
+  expires_at: string;
+  status: InviteStatus | (string & {});
+}
+
+/** `GET /api/org/invite-links`: the links not revoked, with their uses. */
+export interface InviteLinkList {
+  data: InviteLinkRow[];
+}
+
+/** The answer to `createInviteLink`: the row, and `token` and `url`, shown this once. */
+export interface CreatedInviteLink extends InviteLinkRow {
+  token: string;
+  url: string;
+}
+
+/** The body of `members.createInviteLink`. Never an owner link. A month at most and a team's worth of uses: a link is pasted where the org cannot see who reads it. */
+export interface CreateInviteLinkParams {
+  role?: OrgRole;
+  /** Joins the link admits, 1 to 500; 10 when omitted. */
+  max_uses?: number;
+  /** Days it lives, 1 to 30; 7 when omitted. */
+  expires_in_days?: number;
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

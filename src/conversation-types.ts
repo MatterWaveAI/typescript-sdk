@@ -116,6 +116,21 @@ export const APP_OPERATIONS = {
   "imports.start": ["POST", "/api/me/imports"],
   "imports.list": ["GET", "/api/me/imports"],
   "imports.get": ["GET", "/api/me/imports/{import_id}"],
+  "members.list": ["GET", "/api/org/members"],
+  "members.setRole": ["PUT", "/api/org/members/{subject}/role"],
+  "members.transferOwnership": ["POST", "/api/org/members/{subject}/transfer-ownership"],
+  "members.remove": ["DELETE", "/api/org/members/{subject}"],
+  "members.listInvites": ["GET", "/api/org/invites"],
+  "members.createInvite": ["POST", "/api/org/invites"],
+  "members.resendInvite": ["POST", "/api/org/invites/{invite_id}/resend"],
+  "members.revokeInvite": ["DELETE", "/api/org/invites/{invite_id}"],
+  "members.lookupInvite": ["POST", "/api/org/invites/lookup"],
+  "members.acceptInvite": ["POST", "/api/org/invites/accept"],
+  "members.listInviteLinks": ["GET", "/api/org/invite-links"],
+  "members.createInviteLink": ["POST", "/api/org/invite-links"],
+  "members.revokeInviteLink": ["DELETE", "/api/org/invite-links/{link_id}"],
+  "members.lookupJoinLink": ["POST", "/api/join/lookup"],
+  "members.join": ["POST", "/api/join"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {

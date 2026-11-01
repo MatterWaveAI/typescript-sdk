@@ -44,9 +44,13 @@ import type {
   Budget,
   ConversationTags,
   CreateAnnouncementParams,
+  CreateInviteLinkParams,
+  CreateInviteParams,
   CreateKeyParams,
   CreateShareParams,
   CreateWebhookParams,
+  CreatedInvite,
+  CreatedInviteLink,
   CreatedShare,
   DeliveryStatus,
   DeleteAccountParams,
@@ -60,13 +64,20 @@ import type {
   Folder,
   ImportJob,
   ImportJobList,
+  InviteList,
+  InviteLinkList,
+  InvitePreview,
+  JoinPreview,
   Library,
   LibrarySearchParams,
   MemberBudget,
   MemberBudgetList,
+  MemberList,
   NotificationList,
   NotificationListParams,
   OnboardingComplete,
+  OrgMember,
+  OrgRole,
   OrgUsage,
   PasswordChangeParams,
   PasswordChanged,
@@ -80,6 +91,7 @@ import type {
   SetMemberCapParams,
   SetMemberDefaultCapParams,
   SetOverageCapParams,
+  SetRoleParams,
   ShareList,
   SharedConversation,
   StartEmailChangeParams,
@@ -134,6 +146,16 @@ abstract class Resource {
 
   protected none(method: Prepared["method"], path: string, options: RequestOptions): Promise<void> {
     return this.client.empty({ method, path, body: undefined, keyed: true, stream: false }, options);
+  }
+
+  /** A route that needs no key: the token in the body is the credential, or the answer rides the session cookie. */
+  protected callAnon<T extends object>(
+    method: Prepared["method"],
+    path: string,
+    body: unknown,
+    options: RequestOptions,
+  ): Promise<WithRequestId<T>> {
+    return this.client.json<T>({ method, path, body, keyed: false, stream: false }, options);
   }
 }
 
@@ -944,6 +966,168 @@ export class Imports extends Resource {
   /** `GET /api/me/imports/{id}`: where the import stands. Another person's import is the same 404 as none. */
   get(importId: string, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
     return this.call("GET", `/api/me/imports/${segment("importId", importId)}`, undefined, options);
+  }
+}
+
+// --- members / invites / join -------------------------------------------------
+
+const ORG_ROLES: readonly OrgRole[] = ["owner", "admin", "member", "viewer"];
+const LINK_MAX_USES = 500;
+const LINK_MAX_DAYS = 30;
+
+function checkRole(role: string, what: string): void {
+  if (!ORG_ROLES.includes(role as OrgRole)) {
+    throw new MatterWaveConfigError(`${what} must be one of ${ORG_ROLES.join(", ")}, got ${role}`);
+  }
+}
+
+function memberPath(subject: string, suffix = ""): string {
+  return `/api/org/members/${segment("subject", subject)}${suffix}`;
+}
+
+/**
+ * Org membership: the members and their roles, the mailed invites, the
+ * invite links, and the join that redeems either. Every org route here is
+ * gated on the caller's membership row, never on a token claim: any member
+ * lists members and invites and may leave (remove themselves); owner and
+ * admin change roles, remove others, invite, resend, revoke and manage
+ * links; only an owner touches an owner or grants ownership. These routes
+ * refuse an API key outright -- team management is a person's act from a
+ * signed-in session -- and an invite that would pass the plan's seat cap
+ * is refused with the same 402 every other entitlement gate answers.
+ */
+export class Members extends Resource {
+  /** `GET /api/org/members`: every member with their role, the caller's own role beside them, and the seats. */
+  list(options: RequestOptions = {}): Promise<WithRequestId<MemberList>> {
+    return this.call("GET", "/api/org/members", undefined, options);
+  }
+
+  /** `PUT /api/org/members/{subject}/role`: change a member's role. Only an owner grants ownership or touches an owner; the last owner cannot be demoted (409). Owner or admin. */
+  setRole(subject: string, params: SetRoleParams, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
+    checkRole(params.role, "role");
+    return this.call("PUT", memberPath(subject, "/role"), params, options);
+  }
+
+  /**
+   * `POST /api/org/members/{subject}/transfer-ownership`: hand the org to
+   * another member in one step -- they become an owner and the caller an
+   * admin, together or not at all. The target must be able to act and must
+   * not own the org already. Owner only.
+   */
+  transferOwnership(subject: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
+    return this.call("POST", memberPath(subject, "/transfer-ownership"), undefined, options);
+  }
+
+  /**
+   * `DELETE /api/org/members/{subject}`: remove a member. Removing
+   * yourself is leaving and needs nobody's permission (unless you are the
+   * last owner); removing anyone else is owner or admin.
+   */
+  remove(subject: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", memberPath(subject), options);
+  }
+
+  /** `GET /api/org/invites`: the mailed invites and where each stands. Any member may read them. */
+  listInvites(options: RequestOptions = {}): Promise<WithRequestId<InviteList>> {
+    return this.call("GET", "/api/org/invites", undefined, options);
+  }
+
+  /** `POST /api/org/invites` (201): invite an address at a role, and mail it. A relay failure does not undo the row -- `mail: "failed"` says so, and a resend is the recovery. Owner or admin. */
+  createInvite(params: CreateInviteParams, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
+    if (!params.email?.includes("@")) throw new MatterWaveConfigError("email must be an email address");
+    if (params.role !== undefined) checkRole(params.role, "role");
+    return this.call("POST", "/api/org/invites", { role: "member", ...present(params) }, options);
+  }
+
+  /**
+   * `POST /api/org/invites/{id}/resend`: a new token, a new expiry and the
+   * mail again -- the recovery for a mail that never arrived. Three an
+   * hour per invite, so a refused resend leaves the last link working.
+   * Owner or admin.
+   */
+  resendInvite(inviteId: string, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
+    return this.call(
+      "POST",
+      `/api/org/invites/${segment("inviteId", inviteId)}/resend`,
+      undefined,
+      options,
+    );
+  }
+
+  /** `DELETE /api/org/invites/{id}`: revoke an invite for good. Owner or admin. */
+  revokeInvite(inviteId: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", `/api/org/invites/${segment("inviteId", inviteId)}`, options);
+  }
+
+  /**
+   * `POST /api/org/invites/lookup`: what a /join page asks before it
+   * renders -- whose org, which address, which role, and whether the
+   * invite still works. Anonymous: the token is the credential, sent in
+   * the body so it stays out of access logs.
+   */
+  lookupInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<InvitePreview>> {
+    if (!token) throw new MatterWaveConfigError("token must be non-empty");
+    return this.callAnon("POST", "/api/org/invites/lookup", { token }, options);
+  }
+
+  /**
+   * `POST /api/org/invites/accept`: redeem a mailed invite as the signed-in
+   * account whose address was invited. An account in another org cannot be
+   * moved (409 says so); a stranger joins through signup instead.
+   */
+  acceptInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
+    if (!token) throw new MatterWaveConfigError("token must be non-empty");
+    return this.call("POST", "/api/org/invites/accept", { token }, options);
+  }
+
+  /** `GET /api/org/invite-links`: the links not revoked, with their uses. Owner or admin -- a link admits whoever holds it, so what is out and at what role is theirs to know. */
+  listInviteLinks(options: RequestOptions = {}): Promise<WithRequestId<InviteLinkList>> {
+    return this.call("GET", "/api/org/invite-links", undefined, options);
+  }
+
+  /**
+   * `POST /api/org/invite-links` (201): make a link and get its `token`
+   * and `url` -- once; only the hash is kept, so a lost link is revoked
+   * and replaced, never shown again. Never an owner link. Owner or admin.
+   */
+  createInviteLink(
+    params: CreateInviteLinkParams = {},
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<CreatedInviteLink>> {
+    const role = params.role ?? "member";
+    checkRole(role, "role");
+    if (role === "owner") throw new MatterWaveConfigError("An invite link is never an owner link.");
+    const maxUses = params.max_uses ?? 10;
+    const days = params.expires_in_days ?? 7;
+    if (!(maxUses >= 1 && maxUses <= LINK_MAX_USES)) {
+      throw new MatterWaveConfigError(`max_uses must be 1 to ${LINK_MAX_USES}, got ${maxUses}`);
+    }
+    if (!(days >= 1 && days <= LINK_MAX_DAYS)) {
+      throw new MatterWaveConfigError(`expires_in_days must be 1 to ${LINK_MAX_DAYS}, got ${days}`);
+    }
+    return this.call("POST", "/api/org/invite-links", { role, max_uses: maxUses, expires_in_days: days }, options);
+  }
+
+  /** `DELETE /api/org/invite-links/{id}`: revoke a link; the joins it already made stand. Owner or admin. */
+  revokeInviteLink(linkId: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", `/api/org/invite-links/${segment("linkId", linkId)}`, options);
+  }
+
+  /** `POST /api/join/lookup`: what a /join page asks before it renders a link: whose org, which role, whether it still works. Anonymous -- the token is the credential. */
+  lookupJoinLink(token: string, options: RequestOptions = {}): Promise<WithRequestId<JoinPreview>> {
+    if (!token) throw new MatterWaveConfigError("token must be non-empty");
+    return this.callAnon("POST", "/api/join/lookup", { token }, options);
+  }
+
+  /**
+   * `POST /api/join`: join through a link as the signed-in account, which
+   * must already be in the link's org without a membership in it (one
+   * account, one org). A link that is revoked is the same 404 as none; one
+   * that is expired or used up is a 410.
+   */
+  join(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
+    if (!token) throw new MatterWaveConfigError("token must be non-empty");
+    return this.call("POST", "/api/join", { token }, options);
   }
 }
 

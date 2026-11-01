@@ -86,6 +86,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (409 while one does); `ExportJob`, `ExportJobStatus`, `ImportJob` and
   `ImportJobList` spell the rows, progress counts and errors as the worker
   moves them.
+- `client.members` — the team management family (T-209): `list()` (every
+  member, the caller's own role, the seats), `setRole(subject, { role })`,
+  `transferOwnership(subject)` (one step: target becomes owner, caller
+  admin), `remove(subject)` (leaving is removing yourself), the mailed
+  invites -- `listInvites()`, `createInvite({ email, role })` (the answer
+  says whether the mail went; a resend is the recovery),
+  `resendInvite(id)`, `revokeInvite(id)` -- the invite links --
+  `listInviteLinks()`, `createInviteLink({ role?, max_uses?,
+  expires_in_days? })` (the `token` and `url` come back once; never an
+  owner link), `revokeInviteLink(id)` -- and the join that redeems either:
+  `lookupInvite(token)` and `lookupJoinLink(token)` (anonymous, token in
+  the body so it stays out of access logs), `acceptInvite(token)`,
+  `join(token)`. Every org route is gated on the membership row and
+  refuses an API key, so a signed-in session answers them; scoping per
+  method is in the doc comments.
+- `OrgMember`, `MemberList`, `OrgInvite`, `InviteLinkRow`,
+  `CreatedInviteLink`, `InvitePreview`, `JoinPreview` and `OrgRole` types.
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.
