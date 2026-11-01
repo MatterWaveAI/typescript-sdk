@@ -9,7 +9,10 @@
  *
  * `client.conversations` is the app's own conversation API, streaming typed
  * frames; `client.auth.device` signs a person in by device code and returns
- * the key to use. `client.keys`, `client.usage`, `client.webhooks`,
+ * the key to use, and `client.auth.person` signs them in at the identity
+ * provider for a token of their own (`accessToken`), which the routes that
+ * manage the organisation require; `CREDENTIALS` says which credential each
+ * operation needs. `client.keys`, `client.usage`, `client.webhooks`,
  * `client.attachments`, `client.library`, `client.shares`, `client.budget`,
  * `client.notifications`, `client.announcements` and `client.entitlements`
  * are the app's native routes for the same, `client.admin` is the operator
@@ -34,7 +37,11 @@ export {
   DEFAULT_TIMEOUT_MS,
   setSleep,
 } from "./client.js";
-export type { ClientOptions, Fetch, RequestOptions } from "./client.js";
+export type { AccessTokenProvider, ClientOptions, Fetch, RequestOptions } from "./client.js";
+export { CREDENTIALS, PERSON_ONLY_DETAIL } from "./credentials.js";
+export type { Credential } from "./credentials.js";
+export { PersonAuth, PersonSession, REFRESH_AHEAD_S } from "./person.js";
+export type { AuthConfig, PersonLoginOptions, PersonToken } from "./person.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf, pagesOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
 export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";

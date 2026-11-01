@@ -12,6 +12,7 @@
  */
 
 import { MatterWaveConfigError, backoffMs, pause } from "./client.js";
+import { PersonAuth } from "./person.js";
 import type { MatterWave, Prepared, RequestOptions } from "./client.js";
 import type {
   Conversation,
@@ -599,10 +600,17 @@ export class DeviceAuth {
   }
 }
 
+/**
+ * `device` signs a person in through the API and ends in an API key;
+ * `person` signs them in at the identity provider and ends in their own
+ * token, which the routes that manage the organisation require.
+ */
 export class Auth {
   readonly device: DeviceAuth;
+  readonly person: PersonAuth;
   constructor(client: MatterWave) {
     this.device = new DeviceAuth(client);
+    this.person = new PersonAuth(client);
   }
 }
 

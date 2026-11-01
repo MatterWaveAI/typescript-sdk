@@ -340,6 +340,64 @@ const signedIn = new MatterWave({ apiKey: token.access_token });
 own. The SDK never stores the token: keep it in the editor's secret storage or
 the OS keyring.
 
+The key device login mints carries `chat:read` and `chat:write`, so it acts as
+the person in their conversations but not on the routes that manage the
+organisation; for those, sign the person in at the identity provider instead.
+
+## Signing a person in
+
+The routes that manage the organisation -- the audit trail, the org's
+instructions, budget caps, and the operator console -- gate on the caller's
+membership, not a key scope, and answer every API key 403 "Membership is managed
+by a person, not an API key." A person's access token from the deployment's
+identity provider is what they take. Pass one as `accessToken`, the token itself
+or a function that returns it (or a promise of it); the client sends it where a
+key would go, and every other route takes it too.
+
+```ts
+import { MatterWave } from "@matterwave/sdk";
+
+const signin = new MatterWave({ baseUrl: "https://your-matterwave.example" }).auth.person;
+const token = await signin.login({
+  onCode: (code) => console.log(`Open ${code.verification_uri_complete}`),
+  timeoutMs: 300_000,
+});
+const session = signin.session(token, { onRefresh: storeInSecretStorage });
+const admin = new MatterWave({ baseUrl: "https://your-matterwave.example", accessToken: session.accessToken });
+console.log((await admin.audit.list({ event: "org.sso" })).data);
+```
+
+`auth.person.login` is the device authorization grant (RFC 8628) against the
+identity provider's native client, which `/api/auth-config` names; a deployment
+without one throws `MatterWaveError`. It asks for `offline_access` beside the
+deployment's scopes, so the `PersonToken` carries a refresh token, and
+`session(token).accessToken` hands over the access token and refreshes it a
+minute before it expires -- once, however many calls ask at that moment --
+passing each new set to `onRefresh` so the caller can store the rotated refresh
+token. `start()`, `poll(deviceCode)` and `refresh(token)` are the steps on
+their own. A token from anywhere else -- an agent's or a service account's,
+issued by the same identity provider for the deployment's project -- works the
+same way: `accessToken: "eyJ..."`.
+
+### Which credential each method needs
+
+`CREDENTIALS` maps every operation to what its route accepts, from the
+platform's route document (the drift test holds the two together):
+
+| `CREDENTIALS` | Accepts | Methods |
+| --- | --- | --- |
+| `public` | nothing | `index`, `auth.device.start` / `poll`, `shares.view` |
+| `key` | any API key, or a person's token | `me`, `appModels`, `instructions.user` / `updateUser`, `notifications`, `announcements.list`, `entitlements.get`, `messages.setFeedback` / `deleteFeedback`, `keys.list`, `usage.get`, `attachments`, `library`, `shares.listMine` / `revoke`, `budget.get` |
+| `key:chat:read` | a key with `chat:read`, or a person's token | `models`, the conversation reads, `messages.listFeedback`, `shares.list` |
+| `key:chat:write` | a key with `chat:write`, or a person's token | `chat.completions.create`, `embeddings.create`, the conversation writes and turns, `shares.create` |
+| `key:keys:manage` | a key with `keys:manage`, or a person's token | `keys.create` / `update` / `rotate` / `revoke` |
+| `key:usage:read` | a key with `usage:read`, or a person's token | `usage.org`, `usage.exportCsv` |
+| `key:webhooks:manage` | a key with `webhooks:manage`, or a person's token | `webhooks` |
+| `person` | a person's token only | `audit`, `instructions.org` / `updateOrg`, `budget.members` / `setOverageCap` / `setMemberDefaultCap` / `setMemberCap`, `admin` |
+
+A scope never widens a role: the org routes still need the org role they ask of a
+person, whichever credential carries it.
+
 ## Connect your editor to MatterWave
 
 `/mcp` on the deployment's origin is an MCP server: the conversation API in a

@@ -98,9 +98,20 @@ export class RawResponse {
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
+/** A function asked for a person's access token before each call: a `PersonSession`'s `accessToken`, or the caller's own refresher. */
+export type AccessTokenProvider = () => string | Promise<string>;
+
 export interface ClientOptions {
   /** Defaults to `MATTERWAVE_API_KEY`. Only `index()` works without one. */
   apiKey?: string | null;
+  /**
+   * A person's token from the identity provider, in place of a key: the
+   * token itself, or a function asked for it before each call
+   * (`client.auth.person.session(token).accessToken` refreshes). The routes
+   * that manage the organisation (`CREDENTIALS` marks them `person`) take
+   * nothing else; every other route takes either. Not with `apiKey`.
+   */
+  accessToken?: string | AccessTokenProvider | null;
   /** The origin the API is served from; defaults to `MATTERWAVE_BASE_URL`. The OpenAI-style form ending in `/v1` is accepted too. */
   baseUrl?: string | null;
   /** Per attempt. The default is 60 seconds. */
@@ -586,6 +597,7 @@ export class MatterWave {
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
+  private readonly accessToken: string | AccessTokenProvider | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly defaultHeaders: Record<string, string>;
@@ -594,7 +606,17 @@ export class MatterWave {
   private readonly onResponse: ((response: RawResponse) => void) | null;
 
   constructor(options: ClientOptions = {}) {
-    this.apiKey = options.apiKey ?? envValue(API_KEY_ENV);
+    const accessToken = options.accessToken ?? null;
+    if (accessToken !== null && options.apiKey != null) {
+      throw new MatterWaveConfigError("pass apiKey or accessToken, not both: each is the whole bearer");
+    }
+    if (accessToken !== null && typeof accessToken !== "string" && typeof accessToken !== "function") {
+      throw new MatterWaveConfigError("accessToken must be a token or a function that returns one");
+    }
+    this.accessToken = accessToken;
+    // A person's token replaces the key outright, so MATTERWAVE_API_KEY is
+    // not read beside one.
+    this.apiKey = accessToken !== null ? null : (options.apiKey ?? envValue(API_KEY_ENV));
     this.baseUrl = resolveBaseUrl(options.baseUrl);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -640,7 +662,7 @@ export class MatterWave {
     );
   }
 
-  /** `GET /api/me`: who the key (or device-login token) acts as. */
+  /** `GET /api/me`: who the key or the person's token acts as. */
   me(options: RequestOptions = {}): Promise<WithRequestId<Me>> {
     return this.json<Me>(
       { method: "GET", path: "/api/me", body: undefined, keyed: true, stream: false },
@@ -715,7 +737,12 @@ export class MatterWave {
     prepared: Prepared,
     options: RequestOptions,
   ): Promise<{ response: Response; controller: AbortController }> {
-    const headers = this.headersFor(prepared, options.headers);
+    // A token function is asked once per call, and only for a keyed route;
+    // a static credential adds no await, so the request still leaves in the
+    // same tick it was made in.
+    const provided =
+      prepared.keyed && typeof this.accessToken === "function" ? await this.providedToken(this.accessToken) : null;
+    const headers = this.headersFor(prepared, options.headers, provided);
     const url = this.baseUrl + prepared.path;
     // The call's own bounds win, then the operation's (an MCP tool that
     // runs a whole model turn), then the client's defaults.
@@ -776,12 +803,50 @@ export class MatterWave {
   }
 
   /**
+   * A request to another origin -- the identity provider's endpoints --
+   * through the client's `fetch`, with the client's timeout and none of
+   * the API's headers or credential.
+   * @internal
+   */
+  async fetchExternal(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const stop = linkSignals(controller, undefined, this.timeoutMs);
+    try {
+      return await this.fetchImpl(url, {
+        ...init,
+        headers: { "User-Agent": USER_AGENT, ...(init.headers as Record<string, string>) },
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      throw stop.timedOut
+        ? new APITimeoutError(`${init.method ?? "GET"} ${url} timed out.`, { cause })
+        : new APIConnectionError(`${init.method ?? "GET"} ${url} could not be reached: ${describe(cause)}`, { cause });
+    } finally {
+      stop.clear();
+    }
+  }
+
+  /** A token function's answer, refused unless it is a token. */
+  private async providedToken(provider: AccessTokenProvider): Promise<string> {
+    const token = await provider();
+    if (typeof token !== "string" || token === "") {
+      throw new MatterWaveConfigError("accessToken's function must return the token, a non-empty string");
+    }
+    return token;
+  }
+
+  /**
    * Least specific first: the client's own `Accept` and `User-Agent`, then
    * `defaultHeaders`, which may replace them (a client built on this one
    * names itself), then what the operation needs (`Last-Event-ID` on a
-   * resume) and the call's own, then the bearer.
+   * resume) and the call's own, then the bearer: the key, the person's
+   * token, or `provided`, a token function's answer for this call.
    */
-  private headersFor(prepared: Prepared, extra?: Record<string, string>): Record<string, string> {
+  private headersFor(
+    prepared: Prepared,
+    extra: Record<string, string> | undefined,
+    provided: string | null,
+  ): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: prepared.stream ? "text/event-stream" : "application/json",
       "User-Agent": USER_AGENT,
@@ -791,12 +856,13 @@ export class MatterWave {
     };
     if (prepared.body !== undefined && !isForm(prepared.body)) headers["Content-Type"] = "application/json";
     if (prepared.keyed) {
-      if (this.apiKey === null) {
+      const bearer = provided ?? (typeof this.accessToken === "string" ? this.accessToken : this.apiKey);
+      if (bearer === null) {
         throw new MissingAPIKeyError(
-          `${prepared.method} ${prepared.path} needs an API key: pass apiKey or set ${API_KEY_ENV}.`,
+          `${prepared.method} ${prepared.path} needs a credential: pass apiKey (or set ${API_KEY_ENV}), or a person's accessToken.`,
         );
       }
-      headers.Authorization = `Bearer ${this.apiKey}`;
+      headers.Authorization = `Bearer ${bearer}`;
     }
     return headers;
   }

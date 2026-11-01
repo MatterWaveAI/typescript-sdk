@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A person's token in place of an API key: the `accessToken` client option,
+  the token itself or a function asked for it before each call (it may
+  return a promise). The routes that manage the organisation, which refuse
+  every key, take it.
+- `client.auth.person` (`PersonAuth`): the device authorization grant against
+  the identity provider's native client that `/api/auth-config` names
+  (`login`, `start`, `poll`, `refresh`, `config`), returning a `PersonToken`
+  with a refresh token (`offline_access`), and `session(token, { onRefresh })`
+  (`PersonSession`), whose `accessToken` refreshes a minute before expiry.
+- `CREDENTIALS`: the credential each operation needs (`public`, `key`,
+  `key:<scope>`, `person`), held by the drift test to the per-route
+  `security` of the platform's route document; the README tabulates it.
+  The missing-credential error now names both ways to give one.
 - Route drift tests that run in every checkout: `tests/openapi-full.json`
   (the platform's whole route document, vendored at the commit
   `tests/openapi-full.pin.json` names, by `pnpm openapi:refresh-full`) holds

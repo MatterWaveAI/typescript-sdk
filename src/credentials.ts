@@ -1,0 +1,112 @@
+/**
+ * The credential each operation needs, from the per-route `security` of the
+ * platform's route document (tests/openapi-full.json, which the drift test
+ * holds this table to):
+ *
+ * - `public` -- nothing; the route answers anyone.
+ * - `key` -- an API key with no particular scope, or a person's token.
+ * - `key:<scope>` -- an API key carrying that scope, or a person's token.
+ * - `person` -- a person's token (`accessToken`), never an API key. The
+ *   routes that manage the organisation gate on the caller's membership row
+ *   rather than a key scope and answer a key 403 "Membership is managed by
+ *   a person, not an API key."
+ *
+ * A scope never widens the role: a key acts as its owner, and a person as
+ * themselves, so an org route still needs the org role it asks for.
+ */
+
+export type Credential = "public" | "key" | `key:${string}` | "person";
+
+export const CREDENTIALS = {
+  index: "public",
+  "models.list": "key:chat:read",
+  "models.retrieve": "key:chat:read",
+  "chat.completions.create": "key:chat:write",
+  "embeddings.create": "key:chat:write",
+  me: "key",
+  "conversations.list": "key:chat:read",
+  "conversations.search": "key:chat:read",
+  "conversations.create": "key:chat:write",
+  "conversations.get": "key:chat:read",
+  "conversations.update": "key:chat:write",
+  "conversations.tree": "key:chat:read",
+  "conversations.setActiveLeaf": "key:chat:write",
+  "conversations.send": "key:chat:write",
+  "conversations.edit": "key:chat:write",
+  "conversations.regenerate": "key:chat:write",
+  "conversations.fork": "key:chat:write",
+  "conversations.context": "key:chat:read",
+  "conversations.compact": "key:chat:write",
+  "conversations.delete": "key:chat:write",
+  "conversations.pin": "key:chat:write",
+  "conversations.unpin": "key:chat:write",
+  "conversations.archive": "key:chat:write",
+  "conversations.unarchive": "key:chat:write",
+  "conversations.report": "key:chat:write",
+  "conversations.updateInstructions": "key:chat:write",
+  "instructions.user": "key",
+  "instructions.updateUser": "key",
+  "instructions.org": "person",
+  "instructions.updateOrg": "person",
+  "messages.setFeedback": "key",
+  "messages.deleteFeedback": "key",
+  "messages.listFeedback": "key:chat:read",
+  appModels: "key",
+  "auth.device.start": "public",
+  "auth.device.poll": "public",
+  "keys.list": "key",
+  "keys.create": "key:keys:manage",
+  "keys.update": "key:keys:manage",
+  "keys.rotate": "key:keys:manage",
+  "keys.revoke": "key:keys:manage",
+  "usage.get": "key",
+  "usage.org": "key:usage:read",
+  "usage.exportCsv": "key:usage:read",
+  "audit.list": "person",
+  "audit.exportCsv": "person",
+  "webhooks.list": "key:webhooks:manage",
+  "webhooks.create": "key:webhooks:manage",
+  "webhooks.get": "key:webhooks:manage",
+  "webhooks.update": "key:webhooks:manage",
+  "webhooks.delete": "key:webhooks:manage",
+  "webhooks.rotateSecret": "key:webhooks:manage",
+  "webhooks.test": "key:webhooks:manage",
+  "webhooks.deliveries": "key:webhooks:manage",
+  "webhooks.redeliver": "key:webhooks:manage",
+  "attachments.upload": "key",
+  "attachments.get": "key",
+  "attachments.delete": "key",
+  "attachments.download": "key",
+  "attachments.limits": "key",
+  "library.get": "key",
+  "library.search": "key",
+  "library.createFolder": "key",
+  "library.updateFolder": "key",
+  "library.deleteFolder": "key",
+  "library.move": "key",
+  "library.createTag": "key",
+  "library.deleteTag": "key",
+  "library.setTags": "key",
+  "shares.create": "key:chat:write",
+  "shares.list": "key:chat:read",
+  "shares.listMine": "key",
+  "shares.revoke": "key",
+  "shares.view": "public",
+  "budget.get": "key",
+  "budget.setOverageCap": "person",
+  "budget.members": "person",
+  "budget.setMemberDefaultCap": "person",
+  "budget.setMemberCap": "person",
+  "notifications.list": "key",
+  "notifications.read": "key",
+  "notifications.readAll": "key",
+  "announcements.list": "key",
+  "admin.announcements.list": "person",
+  "admin.announcements.create": "person",
+  "admin.announcements.update": "person",
+  "admin.announcements.delete": "person",
+  "entitlements.get": "key",
+} as const satisfies Record<string, Credential>;
+
+/** What the platform answers an API key on a `person` route. */
+export const PERSON_ONLY_DETAIL = "Membership is managed by a person, not an API key.";
