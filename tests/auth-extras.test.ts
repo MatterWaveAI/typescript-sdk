@@ -148,7 +148,7 @@ describe("mfa", () => {
 
   it("verifies the code step of a sign-in anonymously", async () => {
     const { fetch, seen } = stubFetch([json({ redirect: "/api/auth/callback?code=1" })]);
-    const verified = await client(fetch).mfa.verify({ challenge: "sealed-01", code: "123456" });
+    const verified = await client(fetch).mfa.verifyLogin({ challenge: "sealed-01", code: "123456" });
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/auth/mfa`);
     expect(seen[0]!.headers.Authorization).toBeUndefined();
@@ -161,10 +161,10 @@ describe("mfa", () => {
       json({ recovery_codes: ["1256-8831"], challenge: "sealed-02" }),
     ]);
     const c = client(fetch);
-    const started = await c.mfa.enrolStart({ challenge: "sealed-01" });
+    const started = await c.mfa.startLoginEnrolment({ challenge: "sealed-01" });
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/auth/mfa/enrol/start`);
     expect(started.secret).toBe("JBSW");
-    const confirmed = await c.mfa.enrolConfirm({ challenge: "sealed-01", code: "123456" });
+    const confirmed = await c.mfa.confirmLoginEnrolment({ challenge: "sealed-01", code: "123456" });
     expect(seen[1]!.url).toBe(`${BASE_URL}/api/auth/mfa/enrol/confirm`);
     expect(confirmed.challenge).toBe("sealed-02");
   });
@@ -175,7 +175,7 @@ describe("mfa", () => {
     expect(() => c.mfa.confirmTotp({ code: "12ab56" })).toThrow(/six digits/);
     expect(() => c.mfa.confirmTotp({ code: "12345" })).toThrow(/six digits/);
     expect(() => c.mfa.removeTotp({})).toThrow(/authenticator or one of your recovery codes/);
-    expect(() => c.mfa.verify({ challenge: "c", code: "1234567" })).toThrow(/six digits/);
+    expect(() => c.mfa.verifyLogin({ challenge: "c", code: "1234567" })).toThrow(/six digits/);
     expect(calls()).toBe(0);
   });
 });
@@ -254,7 +254,7 @@ describe("speech", () => {
     const { fetch, seen } = stubFetch([json({ text: "words" })]);
     await client(fetch).speech.transcribe({
       file: new Uint8Array([1, 2, 3]),
-      contentType: "audio/wav",
+      content_type: "audio/wav",
       filename: "clip.wav",
     });
     const form = seen[0]!.raw as FormData;
@@ -268,7 +268,7 @@ describe("speech", () => {
       client(fetch).speech.transcribe({ file: new Blob(["x"], { type: "text/plain" }), filename: "a.txt" }),
     ).toThrow(/Send an audio clip/);
     expect(() =>
-      client(fetch).speech.transcribe({ file: new Uint8Array([1]), contentType: "application/pdf", filename: "a" }),
+      client(fetch).speech.transcribe({ file: new Uint8Array([1]), content_type: "application/pdf", filename: "a" }),
     ).toThrow(/Send an audio clip/);
     expect(calls()).toBe(0);
   });

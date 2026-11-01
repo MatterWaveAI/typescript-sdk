@@ -1,6 +1,6 @@
 /**
- * The members resource: the roster and roles, the mailed invites, the
- * invite links, and the join that redeems either. Each test answers with
+ * The members, invites and invite-links resources: the roster and roles,
+ * the mailed invites, the invite links, and the join that redeems either. Each test answers with
  * the body the route in api/matterwave sends and checks the request the
  * client made.
  */
@@ -74,7 +74,7 @@ describe("members", () => {
 
   it("sets a role", async () => {
     const { fetch, seen } = stubFetch([json(memberRow({ role: "viewer" }))]);
-    const updated = await client(fetch).members.setRole(SUBJECT, { role: "viewer" });
+    const updated = await client(fetch).members.setRole(SUBJECT, "viewer");
     expect(seen[0]!.method).toBe("PUT");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/members/${SUBJECT}/role`);
     expect(seen[0]!.body).toEqual({ role: "viewer" });
@@ -83,7 +83,7 @@ describe("members", () => {
 
   it("refuses a role the org does not have before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).members.setRole(SUBJECT, { role: "supreme leader" as "admin" })).toThrow(
+    expect(() => client(fetch).members.setRole(SUBJECT, "supreme leader" as "admin")).toThrow(
       /must be one of owner, admin, member, viewer/,
     );
     expect(calls()).toBe(0);
@@ -106,7 +106,7 @@ describe("members", () => {
 
   it("lists the invites", async () => {
     const { fetch, seen } = stubFetch([json({ data: [inviteRow()] })]);
-    const listed = await client(fetch).members.listInvites();
+    const listed = await client(fetch).invites.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invites`);
     expect(listed.data[0]!.status).toBe("pending");
   });
@@ -115,10 +115,7 @@ describe("members", () => {
     const { fetch, seen } = stubFetch([
       json(inviteRow({ mail: "sent" }), 201),
     ]);
-    const created = await client(fetch).members.createInvite({
-      email: "grace@example.com",
-      role: "admin",
-    });
+    const created = await client(fetch).invites.create("grace@example.com", { role: "admin" });
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invites`);
     expect(seen[0]!.body).toEqual({ email: "grace@example.com", role: "admin" });
@@ -127,14 +124,14 @@ describe("members", () => {
 
   it("defaults the invite role to member", async () => {
     const { fetch, seen } = stubFetch([json(inviteRow({ mail: "failed", detail: "resend it." }), 201)]);
-    const created = await client(fetch).members.createInvite({ email: "grace@example.com" });
+    const created = await client(fetch).invites.create("grace@example.com");
     expect(seen[0]!.body).toEqual({ email: "grace@example.com", role: "member" });
     expect(created.mail).toBe("failed");
   });
 
   it("refuses an invite without an address before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).members.createInvite({ email: "no-at-sign" })).toThrow(
+    expect(() => client(fetch).invites.create("no-at-sign")).toThrow(
       /email address/,
     );
     expect(calls()).toBe(0);
@@ -146,11 +143,11 @@ describe("members", () => {
       new Response(null, { status: 204 }),
     ]);
     const c = client(fetch);
-    const resent = await c.members.resendInvite(INVITE_ID);
+    const resent = await c.invites.resend(INVITE_ID);
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invites/${INVITE_ID}/resend`);
     expect(resent.mail).toBe("sent");
-    await c.members.revokeInvite(INVITE_ID);
+    await c.invites.revoke(INVITE_ID);
     expect(seen[1]!.method).toBe("DELETE");
     expect(seen[1]!.url).toBe(`${BASE_URL}/api/org/invites/${INVITE_ID}`);
   });
@@ -165,7 +162,7 @@ describe("members", () => {
         status: "pending",
       }),
     ]);
-    const preview = await client(fetch).members.lookupInvite(TOKEN);
+    const preview = await client(fetch).invites.lookup(TOKEN);
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invites/lookup`);
     expect(seen[0]!.body).toEqual({ token: TOKEN });
@@ -176,7 +173,7 @@ describe("members", () => {
 
   it("accepts an invite with the key", async () => {
     const { fetch, seen } = stubFetch([json(memberRow())]);
-    const joined = await client(fetch).members.acceptInvite(TOKEN);
+    const joined = await client(fetch).invites.accept(TOKEN);
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invites/accept`);
     expect(seen[0]!.body).toEqual({ token: TOKEN });
     expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
@@ -185,7 +182,7 @@ describe("members", () => {
 
   it("lists the invite links", async () => {
     const { fetch, seen } = stubFetch([json({ data: [linkRow()] })]);
-    const listed = await client(fetch).members.listInviteLinks();
+    const listed = await client(fetch).inviteLinks.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invite-links`);
     expect(listed.data[0]!.uses).toBe(3);
   });
@@ -194,7 +191,7 @@ describe("members", () => {
     const { fetch, seen } = stubFetch([
       json({ ...linkRow(), token: TOKEN, url: `https://matterwave.test/join/${TOKEN}` }, 201),
     ]);
-    const created = await client(fetch).members.createInviteLink({
+    const created = await client(fetch).inviteLinks.create({
       role: "admin",
       max_uses: 25,
       expires_in_days: 14,
@@ -208,16 +205,16 @@ describe("members", () => {
 
   it("defaults the link to a member role, ten uses, seven days", async () => {
     const { fetch, seen } = stubFetch([json({ ...linkRow(), token: TOKEN, url: "u" }, 201)]);
-    await client(fetch).members.createInviteLink();
+    await client(fetch).inviteLinks.create();
     expect(seen[0]!.body).toEqual({ role: "member", max_uses: 10, expires_in_days: 7 });
   });
 
   it("refuses an owner link and out-of-range bounds before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
     const c = client(fetch);
-    expect(() => c.members.createInviteLink({ role: "owner" })).toThrow(/never an owner link/);
-    expect(() => c.members.createInviteLink({ max_uses: 501 })).toThrow(/max_uses must be 1 to 500/);
-    expect(() => c.members.createInviteLink({ expires_in_days: 31 })).toThrow(
+    expect(() => c.inviteLinks.create({ role: "owner" })).toThrow(/never granted by link/);
+    expect(() => c.inviteLinks.create({ max_uses: 501 })).toThrow(/max_uses must be 1 to 500/);
+    expect(() => c.inviteLinks.create({ expires_in_days: 31 })).toThrow(
       /expires_in_days must be 1 to 30/,
     );
     expect(calls()).toBe(0);
@@ -225,7 +222,7 @@ describe("members", () => {
 
   it("revokes a link", async () => {
     const { fetch, seen } = stubFetch([new Response(null, { status: 204 })]);
-    await client(fetch).members.revokeInviteLink(LINK_ID);
+    await client(fetch).inviteLinks.revoke(LINK_ID);
     expect(seen[0]!.method).toBe("DELETE");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/invite-links/${LINK_ID}`);
   });
@@ -239,7 +236,7 @@ describe("members", () => {
         status: "active",
       }),
     ]);
-    const preview = await client(fetch).members.lookupJoinLink(TOKEN);
+    const preview = await client(fetch).inviteLinks.lookup(TOKEN);
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/join/lookup`);
     expect(seen[0]!.headers.Authorization).toBeUndefined();
     expect(preview.status).toBe("active");
@@ -247,7 +244,7 @@ describe("members", () => {
 
   it("joins through a link with the key", async () => {
     const { fetch, seen } = stubFetch([json(memberRow())]);
-    const joined = await client(fetch).members.join(TOKEN);
+    const joined = await client(fetch).inviteLinks.join(TOKEN);
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/join`);
     expect(seen[0]!.headers.Authorization).toBe(`Bearer ${API_KEY}`);
@@ -257,10 +254,10 @@ describe("members", () => {
   it("refuses an empty token before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
     const c = client(fetch);
-    expect(() => c.members.lookupInvite("")).toThrow(MatterWaveConfigError);
-    expect(() => c.members.acceptInvite("")).toThrow(MatterWaveConfigError);
-    expect(() => c.members.lookupJoinLink("")).toThrow(MatterWaveConfigError);
-    expect(() => c.members.join("")).toThrow(MatterWaveConfigError);
+    expect(() => c.invites.lookup("")).toThrow(MatterWaveConfigError);
+    expect(() => c.invites.accept("")).toThrow(MatterWaveConfigError);
+    expect(() => c.inviteLinks.lookup("")).toThrow(MatterWaveConfigError);
+    expect(() => c.inviteLinks.join("")).toThrow(MatterWaveConfigError);
     expect(calls()).toBe(0);
   });
 });

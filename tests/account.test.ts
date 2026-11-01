@@ -1,8 +1,8 @@
 /**
- * The account self-service resource: rename, terms, onboarding, the
- * password and email changes, sessions and preferences, and the deletion.
- * Each test answers with the body the route in api/matterwave sends and
- * checks the request the client made and what it parsed.
+ * The account self-service routes: terms, onboarding, the password and email
+ * changes, sessions and preferences, and the deletion. Each test answers
+ * with the body the route in api/matterwave sends and checks the request the
+ * client made and what it parsed.
  */
 
 import { describe, expect, it } from "vitest";
@@ -10,9 +10,9 @@ import { MatterWaveConfigError } from "../src/index.js";
 import { BASE_URL, REQUEST_ID, client, json, stubFetch } from "./helpers.js";
 
 describe("account", () => {
-  it("renames and reads the name back", async () => {
+  it("updates the name and reads it back", async () => {
     const { fetch, seen } = stubFetch([json({ name: "Ada Lovelace" })]);
-    const renamed = await client(fetch).account.rename({ full_name: "Ada Lovelace" });
+    const renamed = await client(fetch).account.update({ full_name: "Ada Lovelace" });
     expect(seen[0]!.method).toBe("PATCH");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me`);
     expect(seen[0]!.body).toEqual({ full_name: "Ada Lovelace" });
@@ -22,7 +22,7 @@ describe("account", () => {
 
   it("refuses an empty name before sending", async () => {
     const { fetch } = stubFetch([json({ name: "x" })]);
-    expect(() => client(fetch).account.rename({ full_name: "  " })).toThrow(MatterWaveConfigError);
+    expect(() => client(fetch).account.update({ full_name: "  " })).toThrow(MatterWaveConfigError);
   });
 
   it("accepts the terms and reads the recorded version", async () => {
@@ -33,7 +33,7 @@ describe("account", () => {
         terms_current: true,
       }),
     ]);
-    const accepted = await client(fetch).account.acceptTerms({ version: "2026-01-15" });
+    const accepted = await client(fetch).account.acceptTerms("2026-01-15");
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/accept-terms`);
     expect(seen[0]!.body).toEqual({ version: "2026-01-15" });
@@ -104,7 +104,7 @@ describe("account", () => {
         ],
       }),
     ]);
-    const listed = await client(fetch).account.sessions();
+    const listed = await client(fetch).sessions.list();
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/sessions`);
     expect(listed.current_id).toBe("s-1");
@@ -114,7 +114,7 @@ describe("account", () => {
 
   it("revokes one session and says whether it was the current one", async () => {
     const { fetch, seen } = stubFetch([json({ status: "revoked", current: true })]);
-    const revoked = await client(fetch).account.revokeSession("s-1");
+    const revoked = await client(fetch).sessions.revoke("s-1");
     expect(seen[0]!.method).toBe("DELETE");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/sessions/s-1`);
     expect(revoked.current).toBe(true);
@@ -122,7 +122,7 @@ describe("account", () => {
 
   it("signs every other session out", async () => {
     const { fetch, seen } = stubFetch([json({ revoked: 2 })]);
-    const others = await client(fetch).account.revokeOtherSessions();
+    const others = await client(fetch).sessions.revokeOthers();
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/sessions/revoke-others`);
     expect(others.revoked).toBe(2);
@@ -136,41 +136,30 @@ describe("account", () => {
         notifications: { budget_warn: true },
       }),
     ]);
-    const prefs = await client(fetch).account.preferences();
+    const prefs = await client(fetch).preferences.get();
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/preferences`);
     expect(prefs.locale).toBe("en-GB");
     expect(prefs.email.billing_receipts).toBe(true);
   });
 
-  it("saves the whole preferences shape", async () => {
-    const { fetch, seen } = stubFetch([
-      json({
-        email: { product_updates: true, usage_alerts: false, billing_receipts: true },
-        locale: null,
-        notifications: { budget_warn: false },
-      }),
-    ]);
-    const saved = await client(fetch).account.updatePreferences({
-      email: { product_updates: true, usage_alerts: false },
+  it("saves the changes over the stored preferences", async () => {
+    const stored = {
+      email: { product_updates: false, usage_alerts: true, billing_receipts: true },
+      locale: "en-GB",
+      notifications: { budget_warn: true },
+    };
+    const saved = {
+      email: { product_updates: true, usage_alerts: true, billing_receipts: true },
       locale: null,
       notifications: { budget_warn: false },
-    });
-    expect(seen[0]!.method).toBe("PUT");
-    expect(seen[0]!.url).toBe(`${BASE_URL}/api/me/preferences`);
-    expect(seen[0]!.body).toEqual({
-      email: { product_updates: true, usage_alerts: false },
-      locale: null,
-      notifications: { budget_warn: false },
-    });
-    expect(saved.notifications.budget_warn).toBe(false);
-  });
-
-  it("refuses a bad locale before sending", async () => {
-    const { fetch, calls } = stubFetch([json({})]);
-    const c = client(fetch);
-    expect(() => c.account.updatePreferences({ locale: "not a locale!" })).toThrow(/BCP-47/);
-    expect(calls()).toBe(0);
+    };
+    const { fetch, seen } = stubFetch([json(stored), json(saved)]);
+    const answer = await client(fetch).preferences.update({ product_updates: true, locale: null, budget_warn: false });
+    expect(seen[1]!.method).toBe("PUT");
+    expect(seen[1]!.url).toBe(`${BASE_URL}/api/me/preferences`);
+    expect(seen[1]!.body).toEqual(saved);
+    expect(answer.notifications.budget_warn).toBe(false);
   });
 
   it("reads the email change state", async () => {
@@ -252,7 +241,7 @@ describe("account", () => {
         deletion_request_id: "del-01",
       }),
     ]);
-    const deleted = await client(fetch).account.deleteAccount({ confirm: "Delete My Account" });
+    const deleted = await client(fetch).account.delete({ confirm: "Delete My Account" });
     expect(seen[0]!.method).toBe("DELETE");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/me`);
     expect(seen[0]!.body).toEqual({ confirm: "Delete My Account" });
@@ -263,7 +252,7 @@ describe("account", () => {
   it("refuses a wrong confirmation phrase before sending", async () => {
     const { fetch, calls } = stubFetch([json({})]);
     const c = client(fetch);
-    expect(() => c.account.deleteAccount({ confirm: "yes" })).toThrow(/delete my account/);
+    expect(() => c.account.delete({ confirm: "yes" })).toThrow(/delete my account/);
     expect(calls()).toBe(0);
   });
 });

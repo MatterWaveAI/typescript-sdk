@@ -9,6 +9,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Organisation administration, for a person's token: `org` (`get`,
+  `rename`, `close`, the model allow-list, sharing and the org's share
+  links, SSO with its recovery code, two-factor, and `org.domains` and
+  `org.idps`), `members` (`list`, `setRole`, `transferOwnership`,
+  `remove`), `invites` (`list`, `create`, `resend`, `revoke`, `accept`, and
+  the anonymous `lookup`), `inviteLinks` (`list`, `create`, `revoke`,
+  `join`, and the anonymous `lookup`), `billing.checkout` / `portal` /
+  `invoices` / `changePlan` / `planHistory`, and `auth.device.lookup` /
+  `approve` / `deny`. One-time secrets (a link's token and url, an SSO
+  recovery code) say so in their doc comments. Every person-only method's
+  doc comment, its class's or its module's says it needs a person's token,
+  which `tests/person-only.test.ts` checks.
+- The account and data routes a key reaches: `account` (`update`,
+  `acceptTerms`, `enforcement`), `preferences` (`get`, `update`, which reads
+  the object, lays the changes over it and writes it back, since the route
+  replaces it), `sessions` (`list`, `revoke`, `revokeOthers`), `exports`
+  (`create`, `get`, `wait`, `download`, `createAndDownload`, `document`),
+  `imports` (`create`, `list`, `get`, `wait`), `speech.transcribe`,
+  `attachments.scan` / `view` (`view` follows the route's same-origin signed
+  redirect to the bytes), `billing.status`, and the public `plans.list` and
+  `policy.stats`, sent with no credential. `APP_OPERATIONS` and
+  `CREDENTIALS` name each route; their wire types are exported.
+- Examples, each run by `tests/examples.test.ts` against a stubbed fetch:
+  `chat`, `streaming`, `structured-output`, `webhook-receiver`,
+  `device-sign-in` (an API key or a person's token) and `pagination`.
+- A generated API reference: the `docs` workflow builds it with typedoc
+  (warnings fail the build), checks every export has its page
+  (`scripts/check-reference.mjs`) and uploads it as the `api-reference`
+  artifact. `EntitlementLimits` and `ListConversationsParams` are exported,
+  since public signatures name them.
+- A person's token in place of an API key: the `accessToken` client option,
+  the token itself or a function asked for it before each call (it may
+  return a promise). The routes that manage the organisation, which refuse
+  every key, take it.
+- `client.auth.person` (`PersonAuth`): the device authorization grant against
+  the identity provider's native client that `/api/auth-config` names
+  (`login`, `start`, `poll`, `refresh`, `config`), returning a `PersonToken`
+  with a refresh token (`offline_access`), and `session(token, { onRefresh })`
+  (`PersonSession`), whose `accessToken` refreshes a minute before expiry.
+- `CREDENTIALS`: the credential each operation needs (`public`, `key`,
+  `key:<scope>`, `person`), held by the drift test to the per-route
+  `security` of the platform's route document; the README tabulates it.
+  The missing-credential error now names both ways to give one.
+- Route drift tests that run in every checkout: `tests/openapi-full.json`
+  (the platform's whole route document, vendored at the commit
+  `tests/openapi-full.pin.json` names, by `pnpm openapi:refresh-full`) holds
+  every route the SDK calls, and every route the platform documents is
+  wrapped or listed with its reason in `tests/routes-not-covered.json`.
+  `scripts/check-live-routes.mjs` and the daily `route-drift` workflow hold a
+  running deployment's `/openapi.json` to the same pair and open an issue on
+  drift. The check that waited for the `/v1` export to name the `/api`
+  routes is gone; the native route table is still held to the platform's
+  source when its checkout is beside this one.
+- `stream.finalCompletion()` and `ChatCompletionAccumulator.completion()`:
+  the whole streamed answer as a `ChatCompletion` -- the message with its
+  tool calls, the finish reason, the usage, the id and model. A stream that
+  ended without a finish reason throws `MatterWaveError` rather than pass for
+  a whole answer.
+- Standard Webhooks verification: `webhooks.verifyStandardSignature`
+  (exported as `verifyStandardWebhookSignature`) checks `webhook-id`,
+  `webhook-timestamp` and `webhook-signature` (`v1,` and base64, keyed by the
+  base64 after `whsec_`), and `webhooks.unwrap` accepts a delivery whose
+  MatterWave or Standard Webhooks signature verifies. `webhooks.signStandard`
+  and `webhooks.secretKeyBytes` write and key them.
+- Page and item iterators for every cursor-paged list: `audit.pages()` /
+  `audit.items()` (the same filters as `audit.list`) and
+  `library.searchPages(q)` / `library.searchItems(q)`. `pagesOf(fetch)` is
+  the page walk they share, exported beside `itemsOf` for any list
+  answering `{ data, next_cursor }`; `conversations.pages()` uses it too.
 - `frequency_penalty` and `presence_penalty` on `chat.completions.create`,
   relayed to the model as OpenAI defines them (-2 to 2), and in
   `CHAT_COMPLETION_REQUEST_FIELDS`.
@@ -136,20 +205,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when it is behind), and the `ci` workflow takes an `openapi_source` URL
   on a manual run to test against it.
 
+- `client.withOptions({ timeoutMs, maxRetries, maxRetryWaitMs,
+  defaultHeaders, idempotencyKey })`: the client with those settings
+  replaced, sharing its `fetch` and hooks, as Python's `with_options`.
+- An `Idempotency-Key` header on every write (any method but GET): a fresh
+  UUID per call, the same on each of its retries; `idempotencyKey` in a
+  call's options (or `withOptions`) supplies the caller's own.
+- `maxRetryWaitMs` (default 60 seconds), on the client and per call: a
+  `Retry-After` longer than it throws the error at once, with `retryAfter`
+  set, rather than waiting.
+- `extraHeaders`, `extraQuery` and `extraBody` in every call's options;
+  `headers` stays as `extraHeaders`' older name.
+- `stream.finalText()` on both streams; `accumulate()` stays as its alias.
+- `logLevel` (default `MATTERWAVE_LOG`) and `logger`: a line per response or
+  failure (method, path, status, request id, time), and with `debug` each
+  attempt and each retry's wait. Bodies and headers are never logged.
+- A warning through `logger.warn`, once per route, when a response carries
+  `Deprecation` or `Sunset`, naming the route and the dates.
+- `dangerouslyAllowBrowser`: in a browser the client refuses an API key
+  without it.
+- `VERSIONING.md`: the 0.x policy and the API namespace each release speaks;
+  the package ships it and the CHANGELOG.
+- `tests/surface.json` and `tests/parity.json`: the public surface, read off
+  the declarations, and each difference from the Python SDK with its
+  reason, held by a test against that SDK's copy. The README has the table.
+- Releases: a tag must name the package version, a CycloneDX SBOM is built,
+  and each tag gets a GitHub release with its CHANGELOG section, the packed
+  tarball and the SBOM (`scripts/release.mjs`).
+- CI on Node 20, 22 and 24, with `attw` on the built package and
+  `scripts/smoke.mjs` running it in Bun, Deno and headless Chrome; a
+  gitleaks scan of the whole history and a check that no tracked file names
+  a private ticket; `.pre-commit-config.yaml` runs gitleaks on each commit;
+  `CODEOWNERS`.
+
 ### Changed
 
+- A POST or PATCH is retried only after a 429 or a connection that was
+  never made. After a 5xx, a timeout or a reply cut short the first copy may
+  have taken effect -- a message stored and billed, a key minted -- so the
+  error is thrown instead. GET, PUT, DELETE and the read-only MCP calls
+  retry as before.
+- Node 20 or later (`engines`): Node 18 is out of support and lacks the
+  global Web Crypto the webhooks and the idempotency keys use.
+- No runtime dependency: `parse` takes any schema with a `parse` method, so
+  zod is an optional peer rather than a dependency.
+- `MatterWaveConfigError` extends `MatterWaveError`.
+- An environment that cannot be read (Deno without `--allow-env`) counts as
+  unset rather than throwing.
+- Every action in the workflows is pinned to a commit, and the workflow
+  token is read-only unless a job needs more.
+- The methods whose routes refuse every API key -- `audit.list` /
+  `exportCsv`, `instructions.org` / `updateOrg` and `budget.members` /
+  `setOverageCap` / `setMemberDefaultCap` / `setMemberCap` -- say so: each
+  needs a person's token, and its docs quote the 403 a key gets ("Membership
+  is managed by a person, not an API key."). They were documented as working
+  with a key, which the platform never allowed.
+- The licence is the Apache License 2.0, in place of MIT. `LICENSE` holds
+  its text, `NOTICE` names the copyright holder, `package.json` says
+  `Apache-2.0`, and the package carries both files.
+- Each operation has one name, the same in both SDKs (camelCase here,
+  snake_case in Python): the resource, then a verb, or a verb and its
+  object when the resource holds more than one kind of thing. Renamed:
+  `account.deleteAccount` is `account.delete`, `mfa.verify` is
+  `mfa.verifyLogin`, `mfa.enrolStart` is `mfa.startLoginEnrolment`,
+  `mfa.enrolConfirm` is `mfa.confirmLoginEnrolment`, `client.edge` is
+  `client.sync` (the class `Edge` is `Sync`), and `edge.mint` is
+  `sync.mintPairingCode`; `edge.devices`, `unpair`, `pair`, `status` and
+  `push` keep their names under `sync`. `APP_OPERATIONS` and `CREDENTIALS`
+  use the new names.
+- One form per method: `account.acceptTerms(version)`,
+  `org.rename(name)`, `org.setModels(allowed)`, `org.setSharing(enabled)`,
+  `org.setSso(required)`, `members.setRole(subject, role)` and
+  `billing.checkout(plan, { annual })` take the bare value, and
+  `preferences.update` takes the flat keys (`product_updates`,
+  `usage_alerts`, `budget_warn`, `locale`). `org.idps.attach` refuses a
+  blank `name` or `client_id` and an empty `client_secret` before sending.
+- `org.domains` and `org.idps` are namespaces, so the lists are
+  `org.domains.list()` and `org.idps.list()` rather than `org.domains()`
+  and `org.idps()`.
+- The org client's class is `OrgClient`; `Org` is the org's wire type.
+- `speech.transcribe` sends the clip under `content_type`, else a
+  `Blob`'s own type, else the type its file name's extension names, and
+  refuses before sending only a type that is not audio; the route's 415
+  judges the audio types it does not take. `contentType`, its second
+  spelling, is gone.
+- The same wire types are one type each: `Preferences`, `SessionList`,
+  `ImportJob`, `MemberList`, `InviteList`, `DomainVerification`,
+  `PlanCatalog` and the rest. `PlanCatalog.models` holds `ModelPrice` rows
+  keyed by `id`, as the route sends them, and `BillingStatus.dunning` is a
+  `Dunning`, with `pay_url`.
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
 - The agent contract's `list_dir` and `glob` descriptions say what is left
   out (ignored and denied entries; protected ones are listed) and that a
   pattern with no `/` matches names at any depth.
 
+### Removed
+
+- The second names for routes that already had one. Use the name beside
+  each: `account.rename` (`account.update`), `account.sessions`,
+  `account.revokeSession` and `account.revokeOtherSessions`
+  (`sessions.list`, `sessions.revoke`, `sessions.revokeOthers`),
+  `account.preferences` and `account.updatePreferences`
+  (`preferences.get`, `preferences.update`), `exports.start`
+  (`exports.create`), `imports.start` (`imports.create`), `billing.plans`
+  (`plans.list`), `billing.switchPlan` (`billing.changePlan`),
+  `members.listInvites`, `createInvite`, `resendInvite`, `revokeInvite`,
+  `lookupInvite` and `acceptInvite` (`invites.list`, `create`, `resend`,
+  `revoke`, `lookup`, `accept`), `members.listInviteLinks`,
+  `createInviteLink`, `revokeInviteLink`, `lookupJoinLink` and `join`
+  (`inviteLinks.list`, `create`, `revoke`, `lookup`, `join`), and
+  `org.claimDomain`, `domainChallenge`, `verifyDomain`, `releaseDomain`,
+  `attachIdp` and `detachIdp` (`org.domains.claim`, `challenge`, `verify`,
+  `release`, `org.idps.attach`, `detach`).
+- The second names for wire types, with the type to use: `Renamed`
+  (`UpdatedName`), `TermsAccepted` (`TermsAcceptance`), `SessionRow`
+  (`Session`), `SessionRevoked` (`RevokedSession`), `SessionsRevokedOthers`
+  (`RevokedSessions`), `ExportJob`, `ExportJobStatus` and
+  `ExportJobStatusKind` (`AccountExport`), `OrgMember` (`Member`),
+  `MemberSeats` (`Seats`), `OrgInvite` and `CreatedInvite` (`Invite`),
+  `InvitePreview` (`InviteLookup`), `JoinPreview` (`LinkLookup`),
+  `InviteLinkRow` and `CreatedInviteLink` (`InviteLink`), `InviteStatus`,
+  `OrgProfile` (`Org`), `OrgClosed` (`ClosedOrg`), `OrgShareRow`
+  (`OrgShare`), `OrgShareRevoked` (`RevokedOrgShare`), `SsoEnforced` and
+  `SsoRelaxed` (`SsoSettings`), `RecoveryCodeMinted`
+  (`MintedRecoveryCode`), `DnsChallenge` (`DnsRecord`),
+  `DomainChallengeAnswer` (`DomainChallenge`), `OrgDomainRow` (`Domain`),
+  `OrgIdpRow` (`IdentityProvider`), `PlanEvent` (`PlanChange`),
+  `BillingUrl` (`BillingLink`), `Collection` (`BillingStatus`),
+  `DunningState` (`Dunning`) and `PlanModelPrice` (`ModelPrice`), and the
+  parameter types of the removed methods (`RenameParams`,
+  `AcceptTermsParams`, `UploadImportParams`, `SetRoleParams`,
+  `RenameOrgParams`, `SetModelPolicyParams`, `SetSsoParams`,
+  `ClaimDomainParams`, `SwitchPlanParams`). `CreateInviteParams` no longer
+  has `email`: it is `invites.create`'s first argument.
+
+### Fixed
+
+- A retried write could send a message, or mint a key, twice.
+- A `Retry-After: 3600` held a call for an hour, and aborting the call's
+  signal did not end a wait between retries; now it ends at once.
+- A CommonJS consumer got the ESM type declarations: each condition of the
+  exports map now names its own (`.d.cts` for `require`).
+
 ## [0.5.0] - 2026-10-31
 
 ### Added
 
 - `client.account` — the person's own account, the writes the Account and
-  Preferences panes make (T-207): `rename({ full_name })`
+  Preferences panes make: `rename({ full_name })`
   (`PATCH /api/me`), `acceptTerms({ version })`, `completeOnboarding()`,
   `changePassword({ current_password, new_password })`
   (`POST /api/me/password`; every other session ends with it),
@@ -168,7 +372,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactional mail the server refuses to switch off, and now so is the
   type.
 - `client.exports` and `client.imports` — the account export and history
-  import as jobs (T-208): `exports.start()` (`POST /api/me/export`, 202),
+  import as jobs: `exports.start()` (`POST /api/me/export`, 202),
   `exports.get(id)` with a fresh signed `download_url` once ready,
   `exports.download(job | url)` for the bytes behind the signed link, and
   `imports.start({ file, filename })` (multipart, at most 100 MiB),
@@ -176,7 +380,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (409 while one does); `ExportJob`, `ExportJobStatus`, `ImportJob` and
   `ImportJobList` spell the rows, progress counts and errors as the worker
   moves them.
-- `client.members` — the team management family (T-209): `list()` (every
+- `client.members` — the team management family: `list()` (every
   member, the caller's own role, the seats), `setRole(subject, { role })`,
   `transferOwnership(subject)` (one step: target becomes owner, caller
   admin), `remove(subject)` (leaving is removing yourself), the mailed
@@ -193,7 +397,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method is in the doc comments.
 - `OrgMember`, `MemberList`, `OrgInvite`, `InviteLinkRow`,
   `CreatedInviteLink`, `InvitePreview`, `JoinPreview` and `OrgRole` types.
-- `client.org` — the org management family (T-226): `get()` and
+- `client.org` — the org management family: `get()` and
   `rename({ name })`, `close({ confirm })` (the org's name typed exactly;
   danger documented; owner only and idempotent), the model allow-list --
   `models()` and `setModels({ allowed: string[] | null })` (the house
@@ -214,7 +418,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OrgProfile`, `OrgClosed`, `ModelPolicy`, `SharingPolicy`, `OrgShareRow`,
   `SsoSettings`, `RecoveryCode`, `DnsChallenge`, `DomainVerification`,
   `OrgDomainRow`, `OrgIdpRow` and `AttachIdpParams` types.
-- `client.billing` — plans and billing (T-227): `plans()` (`GET /api/plans`,
+- `client.billing` — plans and billing: `plans()` (`GET /api/plans`,
   the public catalog, cheapest first, with the price table and the house
   model; no key needed), `switchPlan({ plan, reason? })` (`PUT /api/plan`,
   the move to Free -- a paid code is the server's 402 pointing at
@@ -227,14 +431,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Plan`, `PlanCatalog`, `PlanEvent`, `Invoice`, `BillingStatus`,
   `DunningState` and `Collection` types.
 - `client.passkeys` — passkeys, WebAuthn relayed through the identity
-  provider (T-228): `list()`, `startRegistration()`,
+  provider: `list()`, `startRegistration()`,
   `verifyRegistration(id, { credential, name })`, `rename(id, { name })`,
   `remove(id)` for the signed-in, and the sign-in ceremony --
   `startLogin({ email, auth_request })` and
   `finishLogin({ challenge, credential })`, anonymous, whose `options`
   feed `navigator.credentials` and whose sealed `challenge` comes back
   untouched.
-- `client.mfa` — the second factor (T-228): `state()`,
+- `client.mfa` — the second factor: `state()`,
   `startTotp()`, `confirmTotp({ code })` (the ten recovery codes come back
   shown-once), `removeTotp({ code? | recovery_code? })` (a proof is
   required; refused outright for a member of an org that requires MFA),
@@ -244,12 +448,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sealed challenge the password step handed out being the credential.
   Code shapes are checked before an attempt is spent: six digits (or
   eight), spaces removed.
-- `client.accounts` — several accounts signed in on one browser (T-228):
+- `client.accounts` — several accounts signed in on one browser:
   `list()`, `switch({ slot })`, `logout(slot)`, `logoutAll()`. These ride
   the session cookies (pass the browser's via `defaultHeaders`), answer
   only what the envelopes already told the browser, and are anonymous on
   purpose; slots are 1 to 3.
-- `client.speech` — dictation's server route (T-228):
+- `client.speech` — dictation's server route:
   `transcribe({ file, filename?, contentType?, language? })` (`POST
   /api/speech/transcribe`, multipart, one clip up to 10 MiB, the words
   back, nothing kept). Media types the route does not take are refused
@@ -258,8 +462,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Passkey`, `PasskeyList`, `TotpEnrolment`, `MfaState`,
   `RecoveryCodesReissued`, `SignedInAccount`, `AccountRoster`,
   `Transcription`, and the params interfaces beside them).
-- `client.edge` — edge pairing and sync (T-229, the resource side of the
-  decision: one namespace, two scoping halves). An admin mints and
+- `client.edge` — edge pairing and sync, the resource side of
+  the edge design: one namespace, two scoping halves. An admin mints and
   manages: `mint({ name })` (`POST /api/sync/pairings`, a ten-minute
   twelve-character Crockford code), `devices()`, `unpair(keyId)` -- owner
   or admin by membership row, an API key refused. A box redeems:
@@ -288,27 +492,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing, stale or wrong signature, or a body that is not a JSON object;
   `sign` ships beside it, the platform sender's exact function. The MAC is
   WebCrypto, so the module runs in Node and browsers alike, and the two
-  entry points are async the way the runtimes' own crypto is (T-201).
+  entry points are async the way the runtimes' own crypto is.
 - Per-call `timeoutMs` and `maxRetries` on any call's options, overriding
   the client's settings for that one call — a single long call can take
-  minutes without holding the whole client at its pace (T-202).
+  minutes without holding the whole client at its pace.
 - `client.lastResponse` — the last HTTP response received, success or
   refusal: status, headers, the request id, `Retry-After` and the
-  `X-RateLimit-*` window the parsed models leave behind, as a `RawResponse`
-  (T-203).
+  `X-RateLimit-*` window the parsed models leave behind, as a `RawResponse`.
 - `client.chat.completions.parse({ schema })` — `create` plus validation:
   the answer's text read as JSON and parsed by the caller's zod schema,
   whose value comes back. A non-JSON answer is a `ParseError`; a schema
-  failure throws the schema's own `ZodError` (T-204).
+  failure throws the schema's own `ZodError`.
 - `stream.accumulate()` on both streams — the whole answer or turn,
-  accumulated: iterate for the pieces, call this for the whole (T-205).
+  accumulated: iterate for the pieces, call this for the whole.
 - `client.conversations.items()` and the generic `itemsOf(pages)` — every
   item of every page, one at a time, the item-level paginator over any
-  cursor-paginated list (T-205).
+  cursor-paginated list.
 - `onRequest` / `onResponse` client hooks — the request about to go out
-  and the response that came back, once per attempt, for logging (T-205).
+  and the response that came back, once per attempt, for logging.
 - `UnprocessableEntityError` — the 422 validation refusal as its own
-  class, the per-field messages joined onto the error (T-206).
+  class, the per-field messages joined onto the error.
 - `client.audit.list()` and `client.audit.exportCsv()` — the org's audit
   trail (`GET /api/org/audit`, `GET /api/org/audit.csv`), the reads the org
   pane's audit tab makes: one page of `audit_events` newest first (`data`,

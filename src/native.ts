@@ -1,39 +1,51 @@
 /**
  * The native API clients: `keys`, `usage`, `webhooks`, `attachments`,
  * `library`, `shares`, `budget`, `notifications`, `announcements`,
- * `entitlements` and the `admin` namespace, one method per route on top of
- * the client's request and retry loop.
+ * `entitlements`, `passkeys`, `mfa`, `accounts`, `edge` and the `admin`
+ * namespace, one method per route on top of the client's request and retry
+ * loop.
  *
  *     const key = await client.keys.create({ name: "ci", expires_in_days: 90 });
  *     const csv = await client.usage.exportCsv({ period: "2026-10" });
  *
- * These are the routes the web app's settings panes use, open to an API key
- * as its owner. Managing keys needs a key with `keys:manage` (or a
- * session), webhooks a key with `webhooks:manage`, the org usage report
- * (`usage.org`, `usage.exportCsv`) a key with `usage:read`, and moving a
- * budget cap an owner or admin. The audit trail (`client.audit`) is the one
- * exception among the reads: those routes gate on the membership row alone,
- * so an API key is refused there outright and a signed-in session is what
- * answers. The scope never widens the owner's role:
+ * These are the routes the web app's settings panes use, most of them open
+ * to an API key as its owner. Managing keys needs a key with `keys:manage`
+ * (or a person's token), webhooks a key with `webhooks:manage`, and the org
+ * usage report (`usage.org`, `usage.exportCsv`) a key with `usage:read`.
+ * The audit trail (`client.audit`), the member budgets and every budget cap
+ * (`budget.members`, `setOverageCap`, `setMemberDefaultCap`,
+ * `setMemberCap`) gate on the caller's membership row rather than a key
+ * scope: they refuse every API key with a 403 "Membership is managed by a
+ * person, not an API key." and answer a person's token (`accessToken`,
+ * `client.auth.person`) from an owner or admin. `CREDENTIALS` lists the
+ * credential every operation needs. The scope never widens the owner's role:
  * webhooks still need the owner to be an org owner or admin, and a member's
  * `usage:read` key sees only their own row. Notifications, announcements
  * and entitlements are the caller's own view, the way `/api/me` is: a
  * notification id belonging to someone else is a 404, indistinguishable
  * from a missing one. The `admin` namespace is the exception to all of it:
  * the operator's own routes, the platform `admin` role, not an API key's.
+ *
+ * Beside them are the web app's sign-in ceremonies -- `passkeys`, `mfa` and
+ * `accounts` -- and `edge`, the pairing and sync of an edge box. Registering
+ * a passkey and enrolling a second factor are a signed-in person's (a
+ * person's token or the web app's session, never an API key); the sign-in
+ * steps themselves and the account switcher are anonymous, riding the
+ * challenge or the browser's cookies. Minting and listing edge pairings is
+ * an owner's or admin's with a person's token; the box redeems its code
+ * anonymously and pushes with the device key it gets.
  */
 
 import { MatterWaveConfigError } from "./client.js";
 import type { MatterWave, Prepared, RequestOptions } from "./client.js";
-import type { Conversation, SearchResults } from "./conversation-types.js";
-import { query, segment } from "./conversations.js";
+import type { AttachmentScan } from "./account-types.js";
+import type { Conversation, SearchHit, SearchResults } from "./conversation-types.js";
+import { itemsOf, pagesOf, query, segment } from "./conversations.js";
 import type {
-  AccountDeleted,
   AccountLoggedOut,
   AccountRoster,
   AccountSwitched,
   AccountSwitchParams,
-  AcceptTermsParams,
   AdminAnnouncement,
   AdminAnnouncementList,
   AnnouncementList,
@@ -42,74 +54,36 @@ import type {
   ApiKeyWithSecret,
   Attachment,
   AttachmentLimits,
-  AttachIdpParams,
   AuditFilters,
+  AuditEvent,
   AuditListParams,
   AuditPage,
   Budget,
-  BillingStatus,
-  BillingUrl,
-  CheckoutParams,
-  ClaimDomainParams,
-  CloseOrgParams,
   ConversationTags,
   CreateAnnouncementParams,
-  CreateInviteLinkParams,
-  CreateInviteParams,
   CreateKeyParams,
   CreateShareParams,
   CreateWebhookParams,
-  CreatedInvite,
-  CreatedInviteLink,
   CreatedShare,
   DeliveryStatus,
-  DeleteAccountParams,
-  DomainChallengeAnswer,
-  DomainList,
-  DomainVerification,
-  EmailChangeCancelled,
-  EmailChangeState,
-  EmailCodeSent,
-  EmailChanged,
   EdgeDeviceList,
   EdgePushOutcome,
   EdgePushParams,
   EdgeSyncStatus,
   Entitlements,
-  ExportJob,
-  ExportJobStatus,
   Folder,
-  IdpList,
-  ImportJob,
-  ImportJobList,
-  InvoiceList,
-  InviteList,
-  InviteLinkList,
-  InvitePreview,
-  JoinPreview,
   Library,
   LibrarySearchParams,
   MemberBudget,
   MemberBudgetList,
-  MemberList,
   MfaEnrolConfirmParams,
   MfaEnrolConfirmed,
   MfaLoginParams,
   MfaState,
   MfaVerified,
   MintPairingParams,
-  ModelPolicy,
   NotificationList,
   NotificationListParams,
-  OnboardingComplete,
-  OrgProfile,
-  OrgClosed,
-  OrgDomainRow,
-  OrgIdpRow,
-  OrgMember,
-  OrgRole,
-  OrgShareList,
-  OrgShareRevoked,
   OrgUsage,
   Passkey,
   PasskeyList,
@@ -119,56 +93,30 @@ import type {
   PasskeyRegistrationParams,
   PasskeyRegistrationStart,
   PasskeyRenameParams,
-  PasswordChangeParams,
-  PasswordChanged,
   PairingCode,
   PairingGranted,
   PairParams,
-  PlanCatalog,
-  PlanHistory,
-  Preferences,
   ReadAllNotifications,
   ReadNotification,
-  RecoveryCodeMinted,
   RecoveryCodesReissued,
-  RenameOrgParams,
-  RenameParams,
-  SessionList,
-  SessionRevoked,
-  SessionsRevokedOthers,
   SetMemberCapParams,
   SetMemberDefaultCapParams,
-  SetModelPolicyParams,
   SetOverageCapParams,
-  SetRoleParams,
-  SetSsoParams,
   ShareList,
   SharedConversation,
-  SharingPolicy,
-  SwitchPlanParams,
-  SsoEnforced,
-  SsoRelaxed,
-  SsoSettings,
-  StartEmailChangeParams,
   Tag,
-  TermsAccepted,
   TotpCodeParams,
   TotpConfirmed,
   TotpEnrolment,
   TotpProof,
   TotpRemoved,
-  TranscribeParams,
-  Transcription,
   UpdateAnnouncementParams,
   UpdateFolderParams,
   UpdateKeyParams,
-  UpdatePreferencesParams,
   UpdateWebhookParams,
   UploadAttachmentParams,
-  UploadImportParams,
   UsageBalance,
   UsagePeriodParams,
-  VerifyEmailChangeParams,
   WebhookDelivery,
   WebhookDeliveryList,
   WebhookEndpoint,
@@ -180,21 +128,19 @@ import type { WithRequestId } from "./types.js";
 const DELIVERY_STATUSES: readonly DeliveryStatus[] = ["pending", "sending", "delivered", "failed"];
 const AUDIT_LIMIT_MAX = 200;
 const KEY_FIELDS = ["name", "scopes", "expires_in_days", "expires_at", "allowed_cidrs", "rpm_limit"] as const;
-const PASSWORD_MIN_LENGTH = 12;
-const PASSWORD_MAX_LENGTH = 256;
-const DELETE_ACCOUNT_PHRASE = "delete my account";
 
 /** The keys that were given, `null` included: where null means "clear it", it has to be sent. */
 function given(body: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
 }
 
-/** The keys that carry a value, where the server reads null and absent alike. */
-function present(body: object): Record<string, unknown> {
+/** @internal The keys that carry a value, where the server reads null and absent alike. */
+export function present(body: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== null));
 }
 
-abstract class Resource {
+/** @internal One namespace of routes on the client: `call` for a JSON answer, `none` for one with nothing to read. */
+export abstract class Resource {
   constructor(protected readonly client: MatterWave) {}
 
   protected call<T extends object>(
@@ -312,8 +258,9 @@ function auditQuery(params: AuditFilters): string {
 /**
  * `/api/org/audit`: the org's trail of who changed what, the reads the org
  * pane's audit tab makes. Owner or admin, and by membership row rather than
- * a token claim: the platform refuses an API key on these routes outright,
- * so they answer a signed-in session.
+ * a token claim: the platform refuses an API key 403 "Membership is managed
+ * by a person, not an API key.", so every method here needs a person's
+ * token (`accessToken`).
  */
 export class Audit extends Resource {
   /**
@@ -322,6 +269,8 @@ export class Audit extends Resource {
    * `since`/`until` bound the window (a bare one is read as UTC); `cursor`
    * is a previous page's `next_cursor`; `limit` is 1 to 200, 50 when
    * omitted. A cursor the API did not mint is the server's 422.
+   *
+   * An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`).
    */
   list(params: AuditListParams = {}, options: RequestOptions = {}): Promise<WithRequestId<AuditPage>> {
     if (params.limit !== undefined && !(params.limit >= 1 && params.limit <= AUDIT_LIMIT_MAX)) {
@@ -342,7 +291,20 @@ export class Audit extends Resource {
     );
   }
 
-  /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). */
+  /** Every page of `list` under the same filters, first to last, each fetched as the previous one is consumed. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
+  pages(
+    params: Omit<AuditListParams, "cursor"> = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<WithRequestId<AuditPage>> {
+    return pagesOf((cursor) => this.list({ ...params, cursor }, options));
+  }
+
+  /** Every matching event, newest first, one at a time across the pages. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
+  items(params: Omit<AuditListParams, "cursor"> = {}, options: RequestOptions = {}): AsyncGenerator<AuditEvent> {
+    return itemsOf(this.pages(params, options));
+  }
+
+  /** `GET /api/org/audit.csv`: every matching row, as the CSV text the server streams (RFC 4180 line endings, `detail` as JSON). An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   exportCsv(params: AuditFilters = {}, options: RequestOptions = {}): Promise<string> {
     return this.client.text(
       {
@@ -477,6 +439,34 @@ export class Attachments extends Resource {
   limits(options: RequestOptions = {}): Promise<WithRequestId<AttachmentLimits>> {
     return this.call("GET", "/api/attachments/limits/me", undefined, options);
   }
+
+  /**
+   * `GET /api/attachments/{id}/scan`: where the malware scan is, the cheap
+   * read to poll after an upload until it is `clean`.
+   */
+  scan(attachmentId: string, options: RequestOptions = {}): Promise<WithRequestId<AttachmentScan>> {
+    return this.call("GET", attachmentPath(attachmentId, "/scan"), undefined, options);
+  }
+
+  /**
+   * The file's bytes by id: the route answers with a redirect to a
+   * ten-minute signed link on the same origin, which fetch follows with the
+   * client's credential, the one the link is bound to. `NotFoundError` until
+   * the file has scanned clean.
+   */
+  view(attachmentId: string, options: RequestOptions = {}): Promise<ArrayBuffer> {
+    return this.client.bytes(
+      {
+        method: "GET",
+        path: attachmentPath(attachmentId, "/view"),
+        body: undefined,
+        keyed: true,
+        stream: false,
+        headers: { Accept: "*/*" },
+      },
+      options,
+    );
+  }
 }
 
 // --- library -------------------------------------------------------------------
@@ -499,6 +489,20 @@ export class LibraryClient extends Resource {
   /** `GET /api/search`: titles and messages, ranked, a page at a time. */
   search(q: string, params: LibrarySearchParams = {}, options: RequestOptions = {}): Promise<WithRequestId<SearchResults>> {
     return this.call("GET", `/api/search${query({ q, cursor: params.cursor, limit: params.limit })}`, undefined, options);
+  }
+
+  /** Every page of `search` for `q`, best match first, each fetched as the previous one is consumed. */
+  searchPages(
+    q: string,
+    params: Omit<LibrarySearchParams, "cursor"> = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<WithRequestId<SearchResults>> {
+    return pagesOf((cursor) => this.search(q, { ...params, cursor }, options));
+  }
+
+  /** Every hit for `q`, one at a time across the pages. */
+  searchItems(q: string, params: Omit<LibrarySearchParams, "cursor"> = {}, options: RequestOptions = {}): AsyncGenerator<SearchHit> {
+    return itemsOf(this.searchPages(q, params, options));
   }
 
   createFolder(name: string, options: RequestOptions = {}): Promise<WithRequestId<Folder>> {
@@ -546,25 +550,31 @@ function checkCap(name: string, micros: number | null): void {
   }
 }
 
-/** `/api/budget`: the org's allowance, what it has spent past it, and the caps that stop it. Every member may read the balance; moving a cap is an owner or admin, and audited. */
+/**
+ * `/api/budget`: the org's allowance, what it has spent past it, and the
+ * caps that stop it. Every member may read the balance, with a key or a
+ * person's token; the member list and moving a cap are an owner's or
+ * admin's, audited, and refuse an API key 403 "Membership is managed by a
+ * person, not an API key.": they need a person's token (`accessToken`).
+ */
 export class BudgetClient extends Resource {
   /** `GET /api/budget`: the period, the overage and the caps, with the caller's own `member_cap` and `member_spent` beside the org's. */
   get(options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
     return this.call("GET", "/api/budget", undefined, options);
   }
 
-  /** `PUT /api/budget`: the most overage a period may run up, in micro-dollars at list price. 0 restores the plan's default. Owner or admin only. */
+  /** `PUT /api/budget`: the most overage a period may run up, in micro-dollars at list price. 0 restores the plan's default. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setOverageCap(params: SetOverageCapParams, options: RequestOptions = {}): Promise<WithRequestId<Budget>> {
     checkCap("overage_cap_micros", params.overage_cap_micros);
     return this.call("PUT", "/api/budget", params, options);
   }
 
-  /** `GET /api/budget/members`: every member's cap in force and spend this month. Owner or admin only. */
+  /** `GET /api/budget/members`: every member's cap in force and spend this month. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   members(options: RequestOptions = {}): Promise<WithRequestId<MemberBudgetList>> {
     return this.call("GET", "/api/budget/members", undefined, options);
   }
 
-  /** `PUT /api/budget/members`: the cap every member without one of their own is held to; `null` lifts it. Owner or admin only. */
+  /** `PUT /api/budget/members`: the cap every member without one of their own is held to; `null` lifts it. Owner or admin only. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setMemberDefaultCap(
     params: SetMemberDefaultCapParams,
     options: RequestOptions = {},
@@ -573,7 +583,7 @@ export class BudgetClient extends Resource {
     return this.call("PUT", "/api/budget/members", params, options);
   }
 
-  /** `PUT /api/budget/members/{subject}`: one member's own cap; `null` removes it so the default applies. Owner or admin only, and only for a current member. */
+  /** `PUT /api/budget/members/{subject}`: one member's own cap; `null` removes it so the default applies. Owner or admin only, and only for a current member. An API key is refused 403 "Membership is managed by a person, not an API key."; this needs a person's token (`accessToken`). */
   setMemberCap(
     subject: string,
     params: SetMemberCapParams,
@@ -796,630 +806,6 @@ export class Admin {
   }
 }
 
-// --- account ------------------------------------------------------------------
-
-function checkNewPassword(newPassword: string): void {  if (newPassword.length < PASSWORD_MIN_LENGTH) {
-    throw new MatterWaveConfigError(
-      `Use at least ${PASSWORD_MIN_LENGTH} characters: length is what makes a password hard to guess, not symbols.`,
-    );
-  }
-  if (newPassword.length > PASSWORD_MAX_LENGTH) {
-    throw new MatterWaveConfigError(`new_password must be at most ${PASSWORD_MAX_LENGTH} characters`);
-  }
-}
-
-/**
- * The person's own account, beyond reading it: rename, re-accept the
- * terms, change the password or the email address, list and sign out
- * sessions, keep preferences, complete onboarding, and delete the
- * account. Every route here is about the caller and nobody else -- the
- * subject in the principal is the only key any of them use.
- *
- * The password and email writes are a **signed-in session's, not an API
- * key's**: a key acts for its owner, and its owner's password is not the
- * key's to change, so those routes answer a key with 403. The reads and
- * the rest work with either.
- */
-export class Account extends Resource {
-  /** `PATCH /api/me`: rename. Whitespace-collapsed, at most 100 characters once it is. */
-  rename(params: RenameParams, options: RequestOptions = {}): Promise<WithRequestId<{ name: string }>> {
-    if (!params.full_name?.trim()) throw new MatterWaveConfigError("full_name must not be empty");
-    if (params.full_name.length > 1000) {
-      throw new MatterWaveConfigError("full_name must be at most 1000 characters");
-    }
-    return this.call("PATCH", "/api/me", params, options);
-  }
-
-  /**
-   * `POST /api/me/accept-terms`: record acceptance of the current terms.
-   * Only the current version is accepted -- a client holding a stale
-   * constant gets the server's 422 -- and the answer says which version
-   * was recorded.
-   */
-  acceptTerms(params: AcceptTermsParams, options: RequestOptions = {}): Promise<WithRequestId<TermsAccepted>> {
-    if (!params.version?.trim()) throw new MatterWaveConfigError("version must be non-empty");
-    return this.call("POST", "/api/me/accept-terms", params, options);
-  }
-
-  /** `POST /api/me/onboarding/complete`: record that the first-run walkthrough was finished or skipped. Idempotent; a second call keeps the first timestamp. */
-  completeOnboarding(options: RequestOptions = {}): Promise<WithRequestId<OnboardingComplete>> {
-    return this.call("POST", "/api/me/onboarding/complete", undefined, options);
-  }
-
-  /**
-   * `POST /api/me/password`: change the password. A session only (403 for
-   * an API key). On success every other session ends -- a changed password
-   * is most often a response to a device the person no longer trusts --
-   * and the answer counts them.
-   */
-  changePassword(params: PasswordChangeParams, options: RequestOptions = {}): Promise<WithRequestId<PasswordChanged>> {
-    if (!params.current_password) throw new MatterWaveConfigError("current_password must be non-empty");
-    checkNewPassword(params.new_password);
-    return this.call("POST", "/api/me/password", params, options);
-  }
-
-  /** `GET /api/me/sessions`: the caller's live sessions, the one making the request flagged. */
-  sessions(options: RequestOptions = {}): Promise<WithRequestId<SessionList>> {
-    return this.call("GET", "/api/me/sessions", undefined, options);
-  }
-
-  /**
-   * `DELETE /api/me/sessions/{id}`: sign one session out. The caller's own
-   * is allowed -- it is "sign out" with the row revoked as well.
-   * `NotFoundError` for one that is not the caller's.
-   */
-  revokeSession(sessionId: string, options: RequestOptions = {}): Promise<WithRequestId<SessionRevoked>> {
-    return this.call("DELETE", `/api/me/sessions/${segment("sessionId", sessionId)}`, undefined, options);
-  }
-
-  /** `POST /api/me/sessions/revoke-others`: every session but this one; the answer counts them. */
-  revokeOtherSessions(options: RequestOptions = {}): Promise<WithRequestId<SessionsRevokedOthers>> {
-    return this.call("POST", "/api/me/sessions/revoke-others", undefined, options);
-  }
-
-  /** `GET /api/me/preferences`: the caller's preferences, defaults applied where nothing was saved. */
-  preferences(options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
-    return this.call("GET", "/api/me/preferences", undefined, options);
-  }
-
-  /**
-   * `PUT /api/me/preferences`: the whole shape, validated by the server --
-   * an unknown locale is a 422 before anything is written. Send what
-   * `preferences()` returned; the type holds `billing_receipts` to `true`,
-   * because receipts are transactional mail the server refuses to switch
-   * off.
-   */
-  updatePreferences(params: UpdatePreferencesParams, options: RequestOptions = {}): Promise<WithRequestId<Preferences>> {
-    if (params.locale !== undefined && params.locale !== null) {
-      if (params.locale.length > 35 || !/^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/.test(params.locale.trim())) {
-        throw new MatterWaveConfigError("locale must be a BCP-47 language tag such as en or en-GB");
-      }
-    }
-    return this.call("PUT", "/api/me/preferences", params, options);
-  }
-
-  /** `GET /api/me/email`: the sign-in address and any change still waiting for its code, so a client can come back to the code step after a reload. Session only. */
-  emailChangeState(options: RequestOptions = {}): Promise<WithRequestId<EmailChangeState>> {
-    return this.call("GET", "/api/me/email", undefined, options);
-  }
-
-  /**
-   * `POST /api/me/email`: mail a code to the new address. Nothing about
-   * the login changes here -- the old address keeps signing in until the
-   * code comes back. A session only. SSO-managed accounts are refused with
-   * a 409 (the organisation's directory owns the address).
-   */
-  startEmailChange(params: StartEmailChangeParams, options: RequestOptions = {}): Promise<WithRequestId<EmailCodeSent>> {
-    if (!params.new_email?.includes("@")) throw new MatterWaveConfigError("new_email must be an email address");
-    if (!params.current_password) throw new MatterWaveConfigError("current_password must be non-empty");
-    return this.call("POST", "/api/me/email", params, options);
-  }
-
-  /**
-   * `POST /api/me/email/verify`: the code back; the address moves, every
-   * other session ends, and the old address is told. A session only.
-   */
-  verifyEmailChange(params: VerifyEmailChangeParams, options: RequestOptions = {}): Promise<WithRequestId<EmailChanged>> {
-    if (!params.code?.trim()) throw new MatterWaveConfigError("code must be non-empty");
-    return this.call("POST", "/api/me/email/verify", params, options);
-  }
-
-  /** `POST /api/me/email/resend`: a fresh code for the pending address; 409 when nothing is pending. Session only. */
-  resendEmailChange(options: RequestOptions = {}): Promise<WithRequestId<EmailCodeSent>> {
-    return this.call("POST", "/api/me/email/resend", undefined, options);
-  }
-
-  /** `POST /api/me/email/cancel`: abandon a change that was started and not finished. Harmless when nothing is pending. Session only. */
-  cancelEmailChange(options: RequestOptions = {}): Promise<WithRequestId<EmailChangeCancelled>> {
-    return this.call("POST", "/api/me/email/cancel", undefined, options);
-  }
-
-  /**
-   * `DELETE /api/me`: delete the account's data and end the session.
-   * Danger: soft-deletes every conversation the caller owns, revokes their
-   * API keys, drops their instructions and asks the identity provider to
-   * deactivate the login, and cannot be undone from the API. The last
-   * owner of an org that still has members must hand it over first (409).
-   * `confirm` is the phrase `"delete my account"`, exactly, checked here
-   * and again by the server. A session only.
-   */
-  deleteAccount(params: DeleteAccountParams, options: RequestOptions = {}): Promise<WithRequestId<AccountDeleted>> {
-    if (params.confirm?.trim().toLowerCase() !== DELETE_ACCOUNT_PHRASE) {
-      throw new MatterWaveConfigError(`Confirmation phrase must be "${DELETE_ACCOUNT_PHRASE}".`);
-    }
-    return this.call("DELETE", "/api/me", params, options);
-  }
-}
-
-// --- exports / imports --------------------------------------------------------
-
-function exportPath(exportId: string, suffix = ""): string {
-  return `/api/me/export/${segment("exportId", exportId)}${suffix}`;
-}
-
-/**
- * The account export as a job, not a request. `GET /api/me/export` builds
- * the whole document inside one request; these are the routes the Data
- * pane uses instead: start one, poll it, download it. One pending export
- * per person (409 while one is building); a finished export is
- * downloadable for a week.
- */
-export class Exports extends Resource {
-  /** `POST /api/me/export` (202): queue the build. The answer is the row, `pending`. */
-  start(options: RequestOptions = {}): Promise<WithRequestId<ExportJob>> {
-    return this.call("POST", "/api/me/export", undefined, options);
-  }
-
-  /**
-   * `GET /api/me/export/{id}`: where the job stands, with a fresh signed
-   * `download_url` once it is ready. Another person's export is the same
-   * 404 as none.
-   */
-  get(exportId: string, options: RequestOptions = {}): Promise<WithRequestId<ExportJobStatus>> {
-    return this.call("GET", exportPath(exportId), undefined, options);
-  }
-
-  /**
-   * The export's bytes, from `get`'s `download_url` (or the URL itself).
-   * The link is signed and dies with the export's `expires_at`: `get`
-   * mints a fresh one.
-   */
-  download(
-    job: Pick<ExportJobStatus, "download_url"> | string,
-    options: RequestOptions = {},
-  ): Promise<ArrayBuffer> {
-    const url = typeof job === "string" ? job : job.download_url;
-    const match = /^\/api\/me\/export\/([^/?#]+)\/download(\?[^#]*)?$/.exec(url ?? "");
-    if (!match) throw new MatterWaveConfigError(`not an export download URL: ${url}`);
-    const path = exportPath(decodeURIComponent(match[1]!), `/download${match[2] ?? ""}`);
-    return this.client.bytes(
-      { method: "GET", path, body: undefined, keyed: true, stream: false, headers: { Accept: "*/*" } },
-      options,
-    );
-  }
-}
-
-/**
- * Importing a ChatGPT or Claude export: start one from the file, then poll
- * the same row the Settings -> Data pane reads. One import runs at a time
- * per account (409 while one does), and the import creates conversations,
- * so an org over its plan's cap is refused until there is room.
- */
-export class Imports extends Resource {
-  /**
-   * `POST /api/me/imports` (202): take the file (at most 100 MiB), check
-   * it is an export this reads, and queue the work. The answer is the row:
-   * what was found (`source`, `conversations_total`) and that it is
-   * pending. Nothing is written to the caller's conversations here.
-   */
-  start(params: UploadImportParams, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
-    if (!params.filename) throw new MatterWaveConfigError("filename must be non-empty");
-    const blob = params.file instanceof Blob ? params.file : new Blob([params.file as BlobPart]);
-    const form = new FormData();
-    form.append("file", blob, params.filename);
-    return this.call("POST", "/api/me/imports", form, options);
-  }
-
-  /** `GET /api/me/imports`: the caller's recent imports, newest first. */
-  list(options: RequestOptions = {}): Promise<WithRequestId<ImportJobList>> {
-    return this.call("GET", "/api/me/imports", undefined, options);
-  }
-
-  /** `GET /api/me/imports/{id}`: where the import stands. Another person's import is the same 404 as none. */
-  get(importId: string, options: RequestOptions = {}): Promise<WithRequestId<ImportJob>> {
-    return this.call("GET", `/api/me/imports/${segment("importId", importId)}`, undefined, options);
-  }
-}
-
-// --- members / invites / join -------------------------------------------------
-
-const ORG_ROLES: readonly OrgRole[] = ["owner", "admin", "member", "viewer"];
-const LINK_MAX_USES = 500;
-const LINK_MAX_DAYS = 30;
-
-function checkRole(role: string, what: string): void {
-  if (!ORG_ROLES.includes(role as OrgRole)) {
-    throw new MatterWaveConfigError(`${what} must be one of ${ORG_ROLES.join(", ")}, got ${role}`);
-  }
-}
-
-function memberPath(subject: string, suffix = ""): string {
-  return `/api/org/members/${segment("subject", subject)}${suffix}`;
-}
-
-/**
- * Org membership: the members and their roles, the mailed invites, the
- * invite links, and the join that redeems either. Every org route here is
- * gated on the caller's membership row, never on a token claim: any member
- * lists members and invites and may leave (remove themselves); owner and
- * admin change roles, remove others, invite, resend, revoke and manage
- * links; only an owner touches an owner or grants ownership. These routes
- * refuse an API key outright -- team management is a person's act from a
- * signed-in session -- and an invite that would pass the plan's seat cap
- * is refused with the same 402 every other entitlement gate answers.
- */
-export class Members extends Resource {
-  /** `GET /api/org/members`: every member with their role, the caller's own role beside them, and the seats. */
-  list(options: RequestOptions = {}): Promise<WithRequestId<MemberList>> {
-    return this.call("GET", "/api/org/members", undefined, options);
-  }
-
-  /** `PUT /api/org/members/{subject}/role`: change a member's role. Only an owner grants ownership or touches an owner; the last owner cannot be demoted (409). Owner or admin. */
-  setRole(subject: string, params: SetRoleParams, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    checkRole(params.role, "role");
-    return this.call("PUT", memberPath(subject, "/role"), params, options);
-  }
-
-  /**
-   * `POST /api/org/members/{subject}/transfer-ownership`: hand the org to
-   * another member in one step -- they become an owner and the caller an
-   * admin, together or not at all. The target must be able to act and must
-   * not own the org already. Owner only.
-   */
-  transferOwnership(subject: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    return this.call("POST", memberPath(subject, "/transfer-ownership"), undefined, options);
-  }
-
-  /**
-   * `DELETE /api/org/members/{subject}`: remove a member. Removing
-   * yourself is leaving and needs nobody's permission (unless you are the
-   * last owner); removing anyone else is owner or admin.
-   */
-  remove(subject: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", memberPath(subject), options);
-  }
-
-  /** `GET /api/org/invites`: the mailed invites and where each stands. Any member may read them. */
-  listInvites(options: RequestOptions = {}): Promise<WithRequestId<InviteList>> {
-    return this.call("GET", "/api/org/invites", undefined, options);
-  }
-
-  /** `POST /api/org/invites` (201): invite an address at a role, and mail it. A relay failure does not undo the row -- `mail: "failed"` says so, and a resend is the recovery. Owner or admin. */
-  createInvite(params: CreateInviteParams, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
-    if (!params.email?.includes("@")) throw new MatterWaveConfigError("email must be an email address");
-    if (params.role !== undefined) checkRole(params.role, "role");
-    return this.call("POST", "/api/org/invites", { role: "member", ...present(params) }, options);
-  }
-
-  /**
-   * `POST /api/org/invites/{id}/resend`: a new token, a new expiry and the
-   * mail again -- the recovery for a mail that never arrived. Three an
-   * hour per invite, so a refused resend leaves the last link working.
-   * Owner or admin.
-   */
-  resendInvite(inviteId: string, options: RequestOptions = {}): Promise<WithRequestId<CreatedInvite>> {
-    return this.call(
-      "POST",
-      `/api/org/invites/${segment("inviteId", inviteId)}/resend`,
-      undefined,
-      options,
-    );
-  }
-
-  /** `DELETE /api/org/invites/{id}`: revoke an invite for good. Owner or admin. */
-  revokeInvite(inviteId: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", `/api/org/invites/${segment("inviteId", inviteId)}`, options);
-  }
-
-  /**
-   * `POST /api/org/invites/lookup`: what a /join page asks before it
-   * renders -- whose org, which address, which role, and whether the
-   * invite still works. Anonymous: the token is the credential, sent in
-   * the body so it stays out of access logs.
-   */
-  lookupInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<InvitePreview>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.callAnon("POST", "/api/org/invites/lookup", { token }, options);
-  }
-
-  /**
-   * `POST /api/org/invites/accept`: redeem a mailed invite as the signed-in
-   * account whose address was invited. An account in another org cannot be
-   * moved (409 says so); a stranger joins through signup instead.
-   */
-  acceptInvite(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.call("POST", "/api/org/invites/accept", { token }, options);
-  }
-
-  /** `GET /api/org/invite-links`: the links not revoked, with their uses. Owner or admin -- a link admits whoever holds it, so what is out and at what role is theirs to know. */
-  listInviteLinks(options: RequestOptions = {}): Promise<WithRequestId<InviteLinkList>> {
-    return this.call("GET", "/api/org/invite-links", undefined, options);
-  }
-
-  /**
-   * `POST /api/org/invite-links` (201): make a link and get its `token`
-   * and `url` -- once; only the hash is kept, so a lost link is revoked
-   * and replaced, never shown again. Never an owner link. Owner or admin.
-   */
-  createInviteLink(
-    params: CreateInviteLinkParams = {},
-    options: RequestOptions = {},
-  ): Promise<WithRequestId<CreatedInviteLink>> {
-    const role = params.role ?? "member";
-    checkRole(role, "role");
-    if (role === "owner") throw new MatterWaveConfigError("An invite link is never an owner link.");
-    const maxUses = params.max_uses ?? 10;
-    const days = params.expires_in_days ?? 7;
-    if (!(maxUses >= 1 && maxUses <= LINK_MAX_USES)) {
-      throw new MatterWaveConfigError(`max_uses must be 1 to ${LINK_MAX_USES}, got ${maxUses}`);
-    }
-    if (!(days >= 1 && days <= LINK_MAX_DAYS)) {
-      throw new MatterWaveConfigError(`expires_in_days must be 1 to ${LINK_MAX_DAYS}, got ${days}`);
-    }
-    return this.call("POST", "/api/org/invite-links", { role, max_uses: maxUses, expires_in_days: days }, options);
-  }
-
-  /** `DELETE /api/org/invite-links/{id}`: revoke a link; the joins it already made stand. Owner or admin. */
-  revokeInviteLink(linkId: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", `/api/org/invite-links/${segment("linkId", linkId)}`, options);
-  }
-
-  /** `POST /api/join/lookup`: what a /join page asks before it renders a link: whose org, which role, whether it still works. Anonymous -- the token is the credential. */
-  lookupJoinLink(token: string, options: RequestOptions = {}): Promise<WithRequestId<JoinPreview>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.callAnon("POST", "/api/join/lookup", { token }, options);
-  }
-
-  /**
-   * `POST /api/join`: join through a link as the signed-in account, which
-   * must already be in the link's org without a membership in it (one
-   * account, one org). A link that is revoked is the same 404 as none; one
-   * that is expired or used up is a 410.
-   */
-  join(token: string, options: RequestOptions = {}): Promise<WithRequestId<OrgMember>> {
-    if (!token) throw new MatterWaveConfigError("token must be non-empty");
-    return this.call("POST", "/api/join", { token }, options);
-  }
-}
-
-// --- org management ------------------------------------------------------------
-
-function domainPath(domain: string, suffix = ""): string {
-  return `/api/org/domains/${segment("domain", domain)}${suffix}`;
-}
-
-/**
- * The org itself and its admin self-service: the name, the closure, the
- * model allow-list, the sharing switch and every share link, and the SSO
- * configuration -- the identity provider, the email domains and their
- * DNS proof, and the enforcement switch with its break-glass code.
- *
- * **Admin scoping.** These routes gate on the caller's membership row,
- * never a token claim, and they refuse an API key outright: a signed-in
- * session of an org owner or admin is what answers them. Reading the org
- * and its model policy is admin; sharing and SSO/domains/IdP are admin;
- * `close`, enabling SSO enforcement and minting a recovery code are owner
- * only (disabling enforcement is open to any admin, because the person
- * undoing a lock-out should not need the person who caused it). The audit
- * trail beside these lives on `client.audit` (`list`, `exportCsv`).
- */
-export class Org extends Resource {
-  /** `GET /api/org`: the org and the caller's role in it. Any member may read it. */
-  get(options: RequestOptions = {}): Promise<WithRequestId<OrgProfile>> {
-    return this.call("GET", "/api/org", undefined, options);
-  }
-
-  /** `PATCH /api/org`: give the org a real name. Owner or admin. */
-  rename(params: RenameOrgParams, options: RequestOptions = {}): Promise<WithRequestId<OrgProfile>> {
-    if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
-    return this.call("PATCH", "/api/org", params, options);
-  }
-
-  /**
-   * `POST /api/org/close`: close the workspace for everyone in it.
-   * Danger: from the commit every request from the org is a 410, its
-   * conversations are soft-deleted and purged after `retention_days`, its
-   * keys, invites and links stop, and the subscription ends. `confirm` is
-   * the org's name, exactly (case-insensitive). Idempotent: a repeat keeps
-   * the first closure and re-runs the side effects, which is how a Stripe
-   * or IdP failure is retried. Owner only.
-   */
-  close(params: CloseOrgParams, options: RequestOptions = {}): Promise<WithRequestId<OrgClosed>> {
-    if (!params.confirm?.trim()) {
-      throw new MatterWaveConfigError("Type the organisation's name exactly to confirm.");
-    }
-    return this.call("POST", "/api/org/close", params, options);
-  }
-
-  /** `GET /api/org/models`: the plan's models with the org's switch on each. Owner or admin; members learn the outcome from the picker (`/api/models`). */
-  models(options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
-    return this.call("GET", "/api/org/models", undefined, options);
-  }
-
-  /**
-   * `PUT /api/org/models`: set the allow-list. An id the plan does not
-   * permit or the gateway does not serve is the server's 422 naming it;
-   * `null` lifts the restriction and the house model is added back
-   * whatever is sent. Owner or admin.
-   */
-  setModels(params: SetModelPolicyParams, options: RequestOptions = {}): Promise<WithRequestId<ModelPolicy>> {
-    if (params.allowed !== null && !Array.isArray(params.allowed)) {
-      throw new MatterWaveConfigError("allowed must be a list of model ids or null");
-    }
-    return this.call("PUT", "/api/org/models", params, options);
-  }
-
-  /** `GET /api/org/sharing`: whether members may share conversations by link. Owner or admin. */
-  sharing(options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
-    return this.call("GET", "/api/org/sharing", undefined, options);
-  }
-
-  /** `PUT /api/org/sharing`: switch sharing on or off for the org. Switching off stops every existing link answering at once, without revoking them. Owner or admin, and audited. */
-  setSharing(params: SharingPolicy, options: RequestOptions = {}): Promise<WithRequestId<SharingPolicy>> {
-    if (typeof params.enabled !== "boolean") throw new MatterWaveConfigError("enabled must be a boolean");
-    return this.call("PUT", "/api/org/sharing", params, options);
-  }
-
-  /** `GET /api/org/shares`: every link the org's members made, newest first, with who made each. Never the tokens. Owner or admin. */
-  shares(options: RequestOptions = {}): Promise<WithRequestId<OrgShareList>> {
-    return this.call("GET", "/api/org/shares", undefined, options);
-  }
-
-  /** `DELETE /api/org/shares/{id}`: revoke any link in the org. Another org's link and one that does not exist are the same 404. Owner or admin. */
-  revokeShare(shareId: string, options: RequestOptions = {}): Promise<WithRequestId<OrgShareRevoked>> {
-    return this.call("DELETE", `/api/org/shares/${segment("shareId", shareId)}`, undefined, options);
-  }
-
-  /** `GET /api/org/sso`: the policy, plus what would stop it being turned on. Owner or admin. */
-  sso(options: RequestOptions = {}): Promise<WithRequestId<SsoSettings>> {
-    return this.call("GET", "/api/org/sso", undefined, options);
-  }
-
-  /**
-   * `PUT /api/org/sso`: enforce, or stop enforcing, SSO. Enabling is owner
-   * only and runs the preflight first: with a blocker the answer is 409
-   * naming it. Enforced, the response carries a minted break-glass
-   * `recovery` code -- there is no way to reach the enforced state without
-   * having been handed the way back out of it, and it is shown once.
-   */
-  setSso(params: SetSsoParams, options: RequestOptions = {}): Promise<WithRequestId<SsoEnforced | SsoRelaxed>> {
-    if (typeof params.sso_required !== "boolean") {
-      throw new MatterWaveConfigError("sso_required must be a boolean");
-    }
-    return this.call("PUT", "/api/org/sso", params, options);
-  }
-
-  /** `POST /api/org/sso/recovery-code` (201): a fresh break-glass code, superseding any unused one. Owner only, and audited. */
-  mintRecoveryCode(options: RequestOptions = {}): Promise<WithRequestId<RecoveryCodeMinted>> {
-    return this.call("POST", "/api/org/sso/recovery-code", undefined, options);
-  }
-
-  /** `GET /api/org/domains`: the claimed domains and whether each is proven. Owner or admin. */
-  domains(options: RequestOptions = {}): Promise<WithRequestId<DomainList>> {
-    return this.call("GET", "/api/org/domains", undefined, options);
-  }
-
-  /** `POST /api/org/domains` (201): claim a domain, unverified. A claim another org holds is a 409 with no hint of whose. Owner or admin. */
-  claimDomain(params: ClaimDomainParams, options: RequestOptions = {}): Promise<WithRequestId<OrgDomainRow>> {
-    if (!params.domain?.trim()) throw new MatterWaveConfigError("domain must be a domain like example.com");
-    return this.call("POST", "/api/org/domains", params, options);
-  }
-
-  /** `GET /api/org/domains/{domain}/challenge`: the DNS TXT record to publish. Minted on first ask and stable thereafter. */
-  domainChallenge(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainChallengeAnswer>> {
-    return this.call("GET", domainPath(domain, "/challenge"), undefined, options);
-  }
-
-  /**
-   * `POST /api/org/domains/{domain}/verify`: prove the claim by looking
-   * for the TXT record. 200 proven; 202 the record is not there yet (the
-   * claim stands, `detail` says what was wrong); 503 the check could not
-   * be run at all. This is a security boundary, not a form field: the
-   * claim decides whose address gets an SSO button.
-   */
-  verifyDomain(domain: string, options: RequestOptions = {}): Promise<WithRequestId<DomainVerification>> {
-    return this.call("POST", domainPath(domain, "/verify"), undefined, options);
-  }
-
-  /** `DELETE /api/org/domains/{domain}`: release the claim. Owner or admin. */
-  releaseDomain(domain: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", domainPath(domain), options);
-  }
-
-  /** `GET /api/org/idp`: the attached identity providers, never their secrets. Owner or admin. */
-  idps(options: RequestOptions = {}): Promise<WithRequestId<IdpList>> {
-    return this.call("GET", "/api/org/idp", undefined, options);
-  }
-
-  /** `POST /api/org/idp` (201): attach an OIDC provider by issuer, client id and secret. A 422 names the issuer when the IdP refused the configuration. Owner or admin. */
-  attachIdp(params: AttachIdpParams, options: RequestOptions = {}): Promise<WithRequestId<OrgIdpRow>> {
-    if (params.kind !== "oidc") throw new MatterWaveConfigError(`kind must be "oidc", got ${params.kind}`);
-    if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
-    if (!params.issuer?.startsWith("https://")) throw new MatterWaveConfigError("issuer must be an https:// URL");
-    if (!params.client_id?.trim()) throw new MatterWaveConfigError("client_id must not be blank");
-    if (!params.client_secret) throw new MatterWaveConfigError("client_secret must be non-empty");
-    const body: Record<string, unknown> = {
-      kind: params.kind,
-      name: params.name,
-      issuer: params.issuer,
-      client_id: params.client_id,
-      client_secret: params.client_secret,
-    };
-    if (params.scopes !== undefined) body.scopes = params.scopes;
-    return this.call("POST", "/api/org/idp", body, options);
-  }
-
-  /** `DELETE /api/org/idp/{provider}`: detach a provider. Postgres first, so nobody is sent to a provider that is about to disappear. Owner or admin. */
-  detachIdp(provider: string, options: RequestOptions = {}): Promise<void> {
-    return this.none("DELETE", `/api/org/idp/${segment("provider", provider)}`, options);
-  }
-}
-
-// --- plans and billing --------------------------------------------------------
-
-/**
- * Plans and billing: the public catalog, the move to Free, the billing
- * trail, and the Stripe checkout, portal, status and invoices.
- *
- * **Admin scoping.** `plans()` is the pricing page's data and no key is
- * needed; `status()` is deliberately readable by any member (a non-admin
- * is told to ask an admin rather than shown a 403). The rest -- switching
- * the plan, the history, checkout, the portal, the invoices -- is owner or
- * admin by membership row: these routes refuse an API key outright, so a
- * signed-in session answers them. No money moves through the SDK: a paid
- * plan is granted by a confirmed Stripe subscription, and `switchPlan` is
- * the move to Free (a paid code answers 402 pointing at checkout).
- */
-export class Billing extends Resource {
-  /** `GET /api/plans`: the public catalog, cheapest first, with the price list and the house model. No key needed. */
-  plans(options: RequestOptions = {}): Promise<WithRequestId<PlanCatalog>> {
-    return this.callAnon("GET", "/api/plans", undefined, options);
-  }
-
-  /** `PUT /api/plan`: move the org to Free. A paid code is the server's 402 pointing at checkout; the move never deletes anything -- past the Free cap the org is read-only and `writes_blocked` says so. Owner or admin. */
-  switchPlan(params: SwitchPlanParams, options: RequestOptions = {}): Promise<WithRequestId<Entitlements>> {
-    if (!params.plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code");
-    return this.call("PUT", "/api/plan", present(params), options);
-  }
-
-  /** `GET /api/plan/history`: the append-only billing trail, newest first. Owner or admin. */
-  planHistory(options: RequestOptions = {}): Promise<WithRequestId<PlanHistory>> {
-    return this.call("GET", "/api/plan/history", undefined, options);
-  }
-
-  /** `POST /api/billing/checkout`: begin a subscription; the answer is the Stripe Checkout URL to redirect to. Owner or admin. */
-  checkout(params: CheckoutParams, options: RequestOptions = {}): Promise<WithRequestId<BillingUrl>> {
-    if (!params.plan?.trim()) throw new MatterWaveConfigError("plan must be a plan code");
-    return this.call("POST", "/api/billing/checkout", { annual: false, ...present(params) }, options);
-  }
-
-  /** `POST /api/billing/portal`: a Stripe customer portal session -- card update, plan change, cancel. The URL, to redirect to. Owner or admin. */
-  portal(options: RequestOptions = {}): Promise<WithRequestId<BillingUrl>> {
-    return this.call("POST", "/api/billing/portal", undefined, options);
-  }
-
-  /** `GET /api/billing/status`: the entitlements, whether billing is on, how the org pays, and the open late-payment episode. Any member. */
-  status(options: RequestOptions = {}): Promise<WithRequestId<BillingStatus>> {
-    return this.call("GET", "/api/billing/status", undefined, options);
-  }
-
-  /** `GET /api/billing/invoices`: the org's invoices, newest first, with Stripe's hosted page and PDF links. Owner or admin. */
-  invoices(options: RequestOptions = {}): Promise<WithRequestId<InvoiceList>> {
-    return this.call("GET", "/api/billing/invoices", undefined, options);
-  }
-}
-
 // --- passkeys ------------------------------------------------------------------
 
 const PASSKEY_NAME_MAX = 64;
@@ -1560,8 +946,8 @@ export class Mfa extends Resource {
     return this.call("POST", "/api/me/mfa/recovery-codes", params, options);
   }
 
-  /** `POST /api/auth/mfa`: the code step of a sign-in. A recovery code is burned whether or not the sign-in then finishes. Anonymous -- the challenge is the credential. */
-  verify(params: MfaLoginParams, options: RequestOptions = {}): Promise<WithRequestId<MfaVerified>> {
+  /** `POST /api/auth/mfa`: the code step of a sign-in, on a code or a recovery code; the answer is the redirect that finishes it. A recovery code is burned whether or not the sign-in then finishes. Anonymous -- the challenge is the credential. */
+  verifyLogin(params: MfaLoginParams, options: RequestOptions = {}): Promise<WithRequestId<MfaVerified>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     checkProof(params);
     if (params.code !== undefined) checkTotpCode(params.code, "code");
@@ -1569,13 +955,13 @@ export class Mfa extends Resource {
   }
 
   /** `POST /api/auth/mfa/enrol/start`: the org-policy path -- an authenticator for a sign-in parked on `mfa_enrolment_required`. Only a challenge minted for enrolment opens this door. Anonymous. */
-  enrolStart(params: { challenge: string }, options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
+  startLoginEnrolment(params: { challenge: string }, options: RequestOptions = {}): Promise<WithRequestId<TotpEnrolment>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     return this.callAnon("POST", "/api/auth/mfa/enrol/start", params, options);
   }
 
-  /** `POST /api/auth/mfa/enrol/confirm`: confirm the registration, hand out the recovery codes, and hand back a fresh challenge -- the sign-in still finishes through `verify` with the next code. Anonymous. */
-  enrolConfirm(params: MfaEnrolConfirmParams, options: RequestOptions = {}): Promise<WithRequestId<MfaEnrolConfirmed>> {
+  /** `POST /api/auth/mfa/enrol/confirm`: confirm the registration, hand out the recovery codes, and hand back a fresh challenge -- the sign-in still finishes through `verifyLogin` with the next code. Anonymous. */
+  confirmLoginEnrolment(params: MfaEnrolConfirmParams, options: RequestOptions = {}): Promise<WithRequestId<MfaEnrolConfirmed>> {
     if (!params.challenge) throw new MatterWaveConfigError("challenge must be non-empty");
     checkTotpCode(params.code, "code");
     return this.callAnon("POST", "/api/auth/mfa/enrol/confirm", params, options);
@@ -1622,59 +1008,6 @@ export class Accounts extends Resource {
   }
 }
 
-// --- speech -----------------------------------------------------------------------
-
-const ACCEPTED_AUDIO_TYPES: readonly string[] = [
-  "audio/webm",
-  "audio/ogg",
-  "audio/mp4",
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/wav",
-  "audio/x-wav",
-  "audio/wave",
-  "audio/flac",
-  "audio/x-m4a",
-  "audio/m4a",
-  "audio/aac",
-  "video/webm",
-  "video/mp4",
-];
-
-/**
- * Dictation's server route: one short clip in, its text out, nothing
- * kept. Up to 10 MiB of audio, thirty clips a minute per person, with an
- * optional BCP 47 language hint. The audio is held in memory for the
- * length of the request and nowhere else: not logged, not stored.
- */
-export class Speech extends Resource {
-  /** `POST /api/speech/transcribe`: the words. 404 `speech_not_configured` on a deployment with no transcriber; 415 for a media type it does not take. */
-  transcribe(params: TranscribeParams, options: RequestOptions = {}): Promise<WithRequestId<Transcription>> {
-    const filename = params.filename || (params.file instanceof File ? params.file.name : "clip");
-    if (!filename) throw new MatterWaveConfigError("filename must be non-empty");
-    const mediaType = (params.file instanceof Blob ? params.file.type : params.contentType ?? "")
-      .split(";")[0]!
-      .trim()
-      .toLowerCase();
-    if (mediaType && !ACCEPTED_AUDIO_TYPES.includes(mediaType)) {
-      throw new MatterWaveConfigError(
-        `Send an audio clip (${ACCEPTED_AUDIO_TYPES.join(", ")}), got ${mediaType}`,
-      );
-    }
-    if (params.language !== undefined) {
-      if (!params.language || params.language.length > 35) {
-        throw new MatterWaveConfigError("language must be a BCP-47 tag of at most 35 characters");
-      }
-    }
-    const blob =
-      params.file instanceof Blob ? params.file : new Blob([params.file as BlobPart], { type: params.contentType });
-    const form = new FormData();
-    form.append("file", blob, filename);
-    if (params.language !== undefined) form.append("language", params.language);
-    return this.call("POST", "/api/speech/transcribe", form, options);
-  }
-}
-
 // --- edge pairing / sync ---------------------------------------------------------
 
 function checkConversationIds(params: EdgePushParams): void {
@@ -1695,7 +1028,7 @@ function checkConversationIds(params: EdgePushParams): void {
  * Settings -> Devices, the box redeems it once for a key that can push
  * conversations and nothing else, and the box pushes over that key.
  *
- * **Who may call what.** `mint`, `devices` and `unpair` are owner or admin
+ * **Who may call what.** `mintPairingCode`, `devices` and `unpair` are owner or admin
  * by membership row and refuse an API key -- pairing is a sign-in for a
  * box, a person's act. `pair` is anonymous: the code is the credential,
  * sixty bits against a ten-minute life. `push` and `status` take the
@@ -1703,9 +1036,9 @@ function checkConversationIds(params: EdgePushParams): void {
  * leaked one can add conversations to that one account and nothing else);
  * `status` answers any principal, a session included.
  */
-export class Edge extends Resource {
+export class Sync extends Resource {
   /** `POST /api/sync/pairings` (201): a code the box redeems once. Ten minutes to live; rate-limited per admin. Owner or admin, by session. */
-  mint(params: MintPairingParams, options: RequestOptions = {}): Promise<WithRequestId<PairingCode>> {
+  mintPairingCode(params: MintPairingParams, options: RequestOptions = {}): Promise<WithRequestId<PairingCode>> {
     if (!params.name?.trim()) throw new MatterWaveConfigError("Name the box.");
     return this.call("POST", "/api/sync/pairings", params, options);
   }

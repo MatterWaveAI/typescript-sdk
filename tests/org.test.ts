@@ -63,7 +63,7 @@ describe("org", () => {
 
   it("renames the org", async () => {
     const { fetch, seen } = stubFetch([json(orgRow({ name: "Acme Industries" }))]);
-    const renamed = await client(fetch).org.rename({ name: "Acme Industries" });
+    const renamed = await client(fetch).org.rename("Acme Industries");
     expect(seen[0]!.method).toBe("PATCH");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org`);
     expect(seen[0]!.body).toEqual({ name: "Acme Industries" });
@@ -72,7 +72,7 @@ describe("org", () => {
 
   it("refuses a blank name before sending", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).org.rename({ name: "  " })).toThrow(MatterWaveConfigError);
+    expect(() => client(fetch).org.rename("  ")).toThrow(MatterWaveConfigError);
     expect(calls()).toBe(0);
   });
 
@@ -119,7 +119,7 @@ describe("org", () => {
 
   it("sets the allow-list, null meaning every model the plan permits", async () => {
     const { fetch, seen } = stubFetch([json(modelPolicy({ restricted: false, data: modelPolicy().data.map((m) => ({ ...m, allowed: true })) }))]);
-    const saved = await client(fetch).org.setModels({ allowed: ["grt-max"] });
+    const saved = await client(fetch).org.setModels(["grt-max"]);
     expect(seen[0]!.method).toBe("PUT");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/models`);
     expect(seen[0]!.body).toEqual({ allowed: ["grt-max"] });
@@ -128,7 +128,7 @@ describe("org", () => {
 
   it("refuses an allow-list that is neither a list nor null", () => {
     const { fetch, calls } = stubFetch([json({})]);
-    expect(() => client(fetch).org.setModels({ allowed: 5 as unknown as string[] })).toThrow(
+    expect(() => client(fetch).org.setModels(5 as unknown as string[])).toThrow(
       MatterWaveConfigError,
     );
     expect(calls()).toBe(0);
@@ -141,7 +141,7 @@ describe("org", () => {
     expect(seen[0]!.method).toBe("GET");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/sharing`);
     expect(got.enabled).toBe(true);
-    const put = await c.org.setSharing({ enabled: false });
+    const put = await c.org.setSharing(false);
     expect(seen[1]!.method).toBe("PUT");
     expect(seen[1]!.body).toEqual({ enabled: false });
     expect(put.enabled).toBe(false);
@@ -203,21 +203,17 @@ describe("org", () => {
         },
       }),
     ]);
-    const enforced = await client(fetch).org.setSso({ sso_required: true });
+    const enforced = await client(fetch).org.setSso(true);
     expect(seen[0]!.method).toBe("PUT");
     expect(seen[0]!.body).toEqual({ sso_required: true });
     expect(enforced.sso_required).toBe(true);
-    if ("recovery" in enforced) {
-      expect(enforced.recovery.code).toBe("1256-8831");
-      expect(enforced.recovery.shown_once).toBe(true);
-    } else {
-      throw new Error("enabling SSO must mint a recovery code");
-    }
+    expect(enforced.recovery?.code).toBe("1256-8831");
+    expect(enforced.recovery?.shown_once).toBe(true);
   });
 
   it("relaxes SSO", async () => {
     const { fetch, seen } = stubFetch([json({ sso_required: false })]);
-    const relaxed = await client(fetch).org.setSso({ sso_required: false });
+    const relaxed = await client(fetch).org.setSso(false);
     expect(seen[0]!.body).toEqual({ sso_required: false });
     expect(relaxed.sso_required).toBe(false);
   });
@@ -261,26 +257,26 @@ describe("org", () => {
       new Response(null, { status: 204 }),
     ]);
     const c = client(fetch);
-    const claimed = await c.org.claimDomain({ domain: DOMAIN });
+    const claimed = await c.org.domains.claim(DOMAIN);
     expect(seen[0]!.method).toBe("POST");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/domains`);
     expect(seen[0]!.body).toEqual({ domain: DOMAIN });
     expect(claimed.verified).toBe(false);
-    const challenge = await c.org.domainChallenge(DOMAIN);
+    const challenge = await c.org.domains.challenge(DOMAIN);
     expect(seen[1]!.url).toBe(`${BASE_URL}/api/org/domains/${DOMAIN}/challenge`);
     expect(challenge.record.type).toBe("TXT");
     expect(challenge.record.name).toBe(`_mw-challenge.${DOMAIN}`);
-    const verified = await c.org.verifyDomain(DOMAIN);
+    const verified = await c.org.domains.verify(DOMAIN);
     expect(seen[2]!.method).toBe("POST");
     expect(verified.verified).toBe(true);
-    await c.org.releaseDomain(DOMAIN);
+    await c.org.domains.release(DOMAIN);
     expect(seen[3]!.method).toBe("DELETE");
     expect(seen[3]!.url).toBe(`${BASE_URL}/api/org/domains/${DOMAIN}`);
   });
 
   it("lists the domains", async () => {
     const { fetch, seen } = stubFetch([json({ data: [domainRow(), domainRow({ domain: "other.example", verified: true })] })]);
-    const listed = await client(fetch).org.domains();
+    const listed = await client(fetch).org.domains.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/domains`);
     expect(listed.data).toHaveLength(2);
     expect(listed.data[1]!.verified).toBe(true);
@@ -288,7 +284,7 @@ describe("org", () => {
 
   it("lists the identity providers without their secrets", async () => {
     const { fetch, seen } = stubFetch([json({ data: [idpRow()] })]);
-    const listed = await client(fetch).org.idps();
+    const listed = await client(fetch).org.idps.list();
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/idp`);
     expect(listed.data[0]!.provider).toBe("okta");
     expect(JSON.stringify(listed)).not.toContain("secret");
@@ -296,7 +292,7 @@ describe("org", () => {
 
   it("attaches an OIDC provider", async () => {
     const { fetch, seen } = stubFetch([json(idpRow(), 201)]);
-    const attached = await client(fetch).org.attachIdp({
+    const attached = await client(fetch).org.idps.attach({
       kind: "oidc",
       name: "Okta (prod)",
       issuer: "https://acme.okta.com",
@@ -321,20 +317,20 @@ describe("org", () => {
     const { fetch, calls } = stubFetch([json({})]);
     const c = client(fetch);
     expect(() =>
-      c.org.attachIdp({ kind: "saml" as "oidc", name: "n", issuer: "https://x", client_id: "c", client_secret: "s" }),
+      c.org.idps.attach({ kind: "saml" as "oidc", name: "n", issuer: "https://x", client_id: "c", client_secret: "s" }),
     ).toThrow(/oidc/);
     expect(() =>
-      c.org.attachIdp({ kind: "oidc", name: "n", issuer: "http://acme.okta.com", client_id: "c", client_secret: "s" }),
+      c.org.idps.attach({ kind: "oidc", name: "n", issuer: "http://acme.okta.com", client_id: "c", client_secret: "s" }),
     ).toThrow(/https/);
     expect(() =>
-      c.org.attachIdp({ kind: "oidc", name: "n", issuer: "https://acme.okta.com", client_id: "c", client_secret: "" }),
+      c.org.idps.attach({ kind: "oidc", name: "n", issuer: "https://acme.okta.com", client_id: "c", client_secret: "" }),
     ).toThrow(/client_secret/);
     expect(calls()).toBe(0);
   });
 
   it("detaches a provider", async () => {
     const { fetch, seen } = stubFetch([new Response(null, { status: 204 })]);
-    await client(fetch).org.detachIdp("okta");
+    await client(fetch).org.idps.detach("okta");
     expect(seen[0]!.method).toBe("DELETE");
     expect(seen[0]!.url).toBe(`${BASE_URL}/api/org/idp/okta`);
   });
