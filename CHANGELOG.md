@@ -168,6 +168,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Passkey`, `PasskeyList`, `TotpEnrolment`, `MfaState`,
   `RecoveryCodesReissued`, `SignedInAccount`, `AccountRoster`,
   `Transcription`, and the params interfaces beside them).
+- `client.edge` — edge pairing and sync (T-229, the resource side of the
+  decision: one namespace, two scoping halves). An admin mints and
+  manages: `mint({ name })` (`POST /api/sync/pairings`, a ten-minute
+  twelve-character Crockford code), `devices()`, `unpair(keyId)` -- owner
+  or admin by membership row, an API key refused. A box redeems:
+  `pair({ code, device_id? })` (`POST /api/sync/pair`, anonymous, the
+  code the credential, the `conversations:import` key shown once). And
+  the device key works: `push({ conversation, device_id?, source?,
+  format_version? })` (`POST /api/sync/conversations`, upsert by id, 200
+  with per-message `rejected` -- the envelope defaults to format 1,
+  source `edge`) and `status()` (counts, times and stop reasons, never
+  content). The foreign-message and format-version refusals are checked
+  here before the round trip.
+- `PairingCode`, `PairingGranted`, `EdgeDevice`, `EdgeSyncStatus`,
+  `EdgePushOutcome` and the push payload types (`EdgeConversation`,
+  `EdgeMessage`, `EdgeOrigin`).
 - `SessionRow`, `SessionList`, `Preferences`, `PasswordChanged`,
   `EmailChangeState`, `AccountDeleted` and the rest of the account family's
   wire types.

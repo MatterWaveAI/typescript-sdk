@@ -1454,6 +1454,115 @@ export interface Transcription {
   text: string;
 }
 
+// --- edge pairing / sync ----------------------------------------------------------
+
+/** `POST /api/sync/pairings` (201): a code the box redeems once for its key. Twelve Crockford characters with dashes, ten minutes to live. Admin only, by session. */
+export interface PairingCode {
+  code: string;
+  name: string;
+  expires_in: number;
+  expires_at: string;
+}
+
+/** The body of `edge.mint`: what to call the box, which names its key (`Edge: <name>`). */
+export interface MintPairingParams {
+  name: string;
+}
+
+/** One paired box: its key row (never a secret) with the box's own name beside it. Revoked ones stay listed -- they are the record of an unpairing. */
+export interface EdgeDevice extends ApiKey {
+  box_name: string;
+}
+
+/** `GET /api/sync/devices`: the org's paired boxes. */
+export interface EdgeDeviceList {
+  data: EdgeDevice[];
+}
+
+/** The body of `edge.pair`. `device_id` keeps a box's identity across re-pairings; mint a uuid and keep it if you want the platform to tell the same box apart. */
+export interface PairParams {
+  code: string;
+  device_id?: string;
+}
+
+/** The answer to `pair`: the box's key -- `conversations:import` and nothing else, shown this once -- beside its id, name and scopes. */
+export interface PairingGranted {
+  key: string;
+  key_id: string;
+  name: string;
+  scopes: string[];
+}
+
+/** What the box's sync job last did, for the shell's one status line. `{"box": false}` on a platform pod, `{"paired": false}` for a box holding no pairing; the counts, times and stop reasons past that -- never content. */
+export interface EdgeSyncStatus {
+  box: boolean;
+  paired: boolean;
+  device_id?: string;
+  platform_url?: string;
+  name?: string | null;
+  paired_at?: string | null;
+  last_synced_at?: string | null;
+  last_attempt_at?: string | null;
+  offline?: boolean;
+  pending?: number;
+  pending_messages?: number | null;
+  pending_capped?: boolean;
+  stopped?: string | null;
+  last_error?: string | null;
+  skipped?: number;
+  skipped_recent?: number;
+  next_attempt_at?: string | null;
+}
+
+/** Where one pushed message came from; the platform fills the device in from the request's `device_id` when the message does not name one. */
+export interface EdgeOrigin {
+  device_id?: string | null;
+  model?: string | null;
+}
+
+/** One message of a pushed conversation, the export's shape. */
+export interface EdgeMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system" | "tool" | (string & {});
+  parts: Record<string, unknown>[];
+  created_at: string;
+  parent_id?: string | null;
+  model?: string | null;
+  truncated?: boolean;
+  finish_reason?: string | null;
+  origin?: EdgeOrigin;
+}
+
+/** The conversation half of a push: the row and its messages, upserted by id. */
+export interface EdgeConversation {
+  id: string;
+  title?: string;
+  created_at: string;
+  updated_at: string;
+  default_model?: string | null;
+  system_prompt?: string | null;
+  current_leaf_message_id?: string | null;
+  messages?: EdgeMessage[];
+}
+
+/** The body of `edge.push`: one conversation per request, `format_version` 1 (the default, and the only version this platform reads). */
+export interface EdgePushParams {
+  format_version?: number;
+  source?: string;
+  device_id?: string;
+  conversation: EdgeConversation;
+}
+
+/** The answer to `push`: what the platform did with each message. 200 even when some were rejected -- read `rejected` per id; the rest stands. */
+export interface EdgePushOutcome {
+  conversation_id: string;
+  accepted: number;
+  updated: number;
+  already_present: number;
+  rejected: Record<string, unknown>[];
+}
+
 // --- entitlements -------------------------------------------------------------
 
 /**

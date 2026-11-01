@@ -32,7 +32,7 @@ import { z } from "zod";
 import { Auth, Conversations, Instructions, Messages } from "./conversations.js";
 import { Mcp } from "./mcp.js";
 import { Admin, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Notifications, Org, Shares, UsageClient, Webhooks } from "./native.js";
-import { Account, Accounts, Mfa, Passkeys, Speech } from "./native.js";
+import { Account, Accounts, Edge, Mfa, Passkeys, Speech } from "./native.js";
 import { sseDataFrames } from "./sse.js";
 import { ChatCompletionAccumulator } from "./accumulate.js";
 import type {
@@ -593,6 +593,8 @@ export class MatterWave {
   readonly accounts: Accounts;
   /** Dictation: one short clip in, its text out. */
   readonly speech: Speech;
+  /** Edge pairing and sync: an admin mints codes, a device key pushes. */
+  readonly edge: Edge;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
   private readonly apiKey: string | null;
@@ -645,6 +647,7 @@ export class MatterWave {
     this.mfa = new Mfa(this);
     this.accounts = new Accounts(this);
     this.speech = new Speech(this);
+    this.edge = new Edge(this);
   }
 
   /** The last HTTP response received, success or refusal; null until something has been sent. */

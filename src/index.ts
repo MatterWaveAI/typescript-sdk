@@ -41,6 +41,7 @@ export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } f
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
 export { Account, Accounts, Admin, AdminAnnouncements, Announcements, Attachments, Audit, Billing, BudgetClient, EntitlementsClient, Exports, Imports, Keys, LibraryClient, Members, Mfa, Notifications, Org, Passkeys, Shares, Speech, UsageClient, Webhooks } from "./native.js";
+export { Edge } from "./native.js";
 export type {
   AccountDeleted,
   AccountLoggedOut,
@@ -91,6 +92,14 @@ export type {
   EmailCodeSent,
   EmailChanged,
   EmailPreferences,
+  EdgeConversation,
+  EdgeDevice,
+  EdgeDeviceList,
+  EdgeMessage,
+  EdgeOrigin,
+  EdgePushOutcome,
+  EdgePushParams,
+  EdgeSyncStatus,
   Entitlements,
   ExportJob,
   ExportJobStatus,
@@ -113,6 +122,8 @@ export type {
   MfaEnrolConfirmed,
   MfaLoginParams,
   MfaState,
+  MfaVerified,
+  MintPairingParams,
   MemberBudget,
   MemberBudgetList,
   MemberList,
@@ -147,6 +158,9 @@ export type {
   PasskeyRenameParams,
   PasswordChangeParams,
   PasswordChanged,
+  PairingCode,
+  PairingGranted,
+  PairParams,
   Plan,
   PlanCatalog,
   PlanEvent,

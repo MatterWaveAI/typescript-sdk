@@ -178,6 +178,12 @@ export const APP_OPERATIONS = {
   "accounts.logout": ["POST", "/api/accounts/{slot}/logout"],
   "accounts.logoutAll": ["POST", "/api/accounts/logout-all"],
   "speech.transcribe": ["POST", "/api/speech/transcribe"],
+  "edge.mint": ["POST", "/api/sync/pairings"],
+  "edge.devices": ["GET", "/api/sync/devices"],
+  "edge.unpair": ["DELETE", "/api/sync/devices/{key_id}"],
+  "edge.pair": ["POST", "/api/sync/pair"],
+  "edge.status": ["GET", "/api/sync/status"],
+  "edge.push": ["POST", "/api/sync/conversations"],
 } as const satisfies Record<string, readonly ["GET" | "POST" | "PUT" | "PATCH" | "DELETE", string]>;
 /** One part of a message: `text`, `reasoning`, `tool_call`, `tool_result`, `image`, `document` or `summary`. */
 export interface MessagePart {

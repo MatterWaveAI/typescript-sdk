@@ -71,6 +71,10 @@ import type {
   EmailChangeState,
   EmailCodeSent,
   EmailChanged,
+  EdgeDeviceList,
+  EdgePushOutcome,
+  EdgePushParams,
+  EdgeSyncStatus,
   Entitlements,
   ExportJob,
   ExportJobStatus,
@@ -93,6 +97,7 @@ import type {
   MfaLoginParams,
   MfaState,
   MfaVerified,
+  MintPairingParams,
   ModelPolicy,
   NotificationList,
   NotificationListParams,
@@ -116,6 +121,9 @@ import type {
   PasskeyRenameParams,
   PasswordChangeParams,
   PasswordChanged,
+  PairingCode,
+  PairingGranted,
+  PairParams,
   PlanCatalog,
   PlanHistory,
   Preferences,
@@ -1664,6 +1672,84 @@ export class Speech extends Resource {
     form.append("file", blob, filename);
     if (params.language !== undefined) form.append("language", params.language);
     return this.call("POST", "/api/speech/transcribe", form, options);
+  }
+}
+
+// --- edge pairing / sync ---------------------------------------------------------
+
+function checkConversationIds(params: EdgePushParams): void {
+  if (params.format_version !== undefined && params.format_version !== 1) {
+    throw new MatterWaveConfigError(
+      `format_version must be 1 (the only version the platform reads), got ${params.format_version}`,
+    );
+  }
+  for (const message of params.conversation.messages ?? []) {
+    if (message.conversation_id !== params.conversation.id) {
+      throw new MatterWaveConfigError("Every message's conversation_id must be the conversation's id.");
+    }
+  }
+}
+
+/**
+ * Edge pairing and sync: an org owner or admin mints a pairing code in
+ * Settings -> Devices, the box redeems it once for a key that can push
+ * conversations and nothing else, and the box pushes over that key.
+ *
+ * **Who may call what.** `mint`, `devices` and `unpair` are owner or admin
+ * by membership row and refuse an API key -- pairing is a sign-in for a
+ * box, a person's act. `pair` is anonymous: the code is the credential,
+ * sixty bits against a ten-minute life. `push` and `status` take the
+ * device key `pair` minted (`conversations:import` and nothing else -- a
+ * leaked one can add conversations to that one account and nothing else);
+ * `status` answers any principal, a session included.
+ */
+export class Edge extends Resource {
+  /** `POST /api/sync/pairings` (201): a code the box redeems once. Ten minutes to live; rate-limited per admin. Owner or admin, by session. */
+  mint(params: MintPairingParams, options: RequestOptions = {}): Promise<WithRequestId<PairingCode>> {
+    if (!params.name?.trim()) throw new MatterWaveConfigError("Name the box.");
+    return this.call("POST", "/api/sync/pairings", params, options);
+  }
+
+  /** `GET /api/sync/devices`: the org's paired boxes, revoked ones included -- the record of an unpairing. Owner or admin. */
+  devices(options: RequestOptions = {}): Promise<WithRequestId<EdgeDeviceList>> {
+    return this.call("GET", "/api/sync/devices", undefined, options);
+  }
+
+  /** `DELETE /api/sync/devices/{key_id}`: unpair a box -- its key revoked, the box notices on its next push and stops. Only an edge key; anything else is the API keys pane's and a 404 here. Owner or admin. */
+  unpair(keyId: string, options: RequestOptions = {}): Promise<void> {
+    return this.none("DELETE", `/api/sync/devices/${segment("keyId", keyId)}`, options);
+  }
+
+  /** `POST /api/sync/pair`: trade a pairing code for the box's key, once. Anonymous -- the code is the credential; unknown, expired and already used are one 404. */
+  pair(params: PairParams, options: RequestOptions = {}): Promise<WithRequestId<PairingGranted>> {
+    if (!params.code) throw new MatterWaveConfigError("code must be non-empty");
+    const body: Record<string, unknown> = { code: params.code };
+    if (params.device_id !== undefined) body.device_id = params.device_id;
+    return this.callAnon("POST", "/api/sync/pair", body, options);
+  }
+
+  /** `GET /api/sync/status`: what the sync job last did, counts and times and stop reasons, never content. Any principal. */
+  status(options: RequestOptions = {}): Promise<WithRequestId<EdgeSyncStatus>> {
+    return this.call("GET", "/api/sync/status", undefined, options);
+  }
+
+  /**
+   * `POST /api/sync/conversations`: upsert one conversation and its
+   * messages by id, with the device key `pair` minted. 200 even when some
+   * messages were rejected -- read `rejected` per id; the whole request is
+   * refused only when the conversation id is not the caller's to write
+   * (409) or was deleted here (410).
+   */
+  push(params: EdgePushParams, options: RequestOptions = {}): Promise<WithRequestId<EdgePushOutcome>> {
+    if (!params.conversation?.id) throw new MatterWaveConfigError("conversation must have an id");
+    checkConversationIds(params);
+    const body = {
+      format_version: params.format_version ?? 1,
+      source: params.source ?? "edge",
+      ...(params.device_id !== undefined ? { device_id: params.device_id } : {}),
+      conversation: { ...params.conversation, messages: params.conversation.messages ?? [] },
+    };
+    return this.call("POST", "/api/sync/conversations", body, options);
   }
 }
 
