@@ -7,7 +7,7 @@ import {
   RateLimitError,
   ServerError,
 } from "../src/index.js";
-import { BACKOFF_BASE_MS, BACKOFF_CAP_MS, backoffMs, retryAfterSeconds } from "../src/client.js";
+import { BACKOFF_BASE_MS, BACKOFF_CAP_MS, backoffMs, pause, retryAfterSeconds, setSleep } from "../src/client.js";
 import {
   BASE_URL,
   REQUEST_ID,
@@ -282,6 +282,74 @@ describe("retries", () => {
         other.mcp.callTool("send_message", { conversation_id: "c-1", content: "hi" }),
       ).rejects.toBeInstanceOf(ServerError);
       expect(sent).toEqual(["initialize", "tools/call"]);
+    });
+  });
+
+  describe("the longest wait", () => {
+    it("a Retry-After beyond the maximum throws at once, the delay on the error", async () => {
+      const { fetch, calls } = stubFetch([json(RATE_LIMITED, 429, { "Retry-After": "3600" }), json(completionBody())]);
+      const error = await client(fetch)
+        .chat.completions.create({ messages: PROMPT })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(RateLimitError);
+      expect((error as APIError).retryAfter).toBe(3600);
+      expect(calls()).toBe(1);
+      expect(sleeps).toEqual([]);
+    });
+
+    it("a wait at the maximum is still taken", async () => {
+      const { fetch, calls } = stubFetch([json(RATE_LIMITED, 429, { "Retry-After": "60" }), json(completionBody())]);
+      await client(fetch).chat.completions.create({ messages: PROMPT });
+      expect(calls()).toBe(2);
+      expect(sleeps).toEqual([60_000]);
+    });
+
+    it("maxRetryWaitMs moves the line, for a 5xx as well", async () => {
+      const { fetch, calls } = stubFetch([json(UPSTREAM, 503, { "Retry-After": "5" }), json(ME)]);
+      const c = new MatterWave({ apiKey: "k", baseUrl: BASE_URL, maxRetryWaitMs: 2_000, fetch });
+      const error = await c.me().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ServerError);
+      expect(calls()).toBe(1);
+    });
+
+    it("a negative maximum is refused", () => {
+      expect(() => new MatterWave({ apiKey: "k", baseUrl: BASE_URL, maxRetryWaitMs: -1 })).toThrow(/maxRetryWaitMs/);
+    });
+  });
+
+  describe("aborting during backoff", () => {
+    it("returns at once with the signal's reason, sending nothing more", async () => {
+      restore();
+      const { fetch, calls } = stubFetch([json(RATE_LIMITED, 429, { "Retry-After": "30" }), json(ME)]);
+      const controller = new AbortController();
+      const started = Date.now();
+      const pending = client(fetch).me({ signal: controller.signal });
+      setTimeout(() => controller.abort(), 20);
+      const error = await pending.catch((e: unknown) => e);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(error).toBeInstanceOf(DOMException);
+      expect((error as DOMException).name).toBe("AbortError");
+      expect(calls()).toBe(1);
+    });
+
+    it("cuts a replaced sleeper short too", async () => {
+      const previous = setSleep(() => new Promise(() => {}));
+      try {
+        const { fetch, calls } = stubFetch([refused(), json(ME)]);
+        const controller = new AbortController();
+        const pending = client(fetch).me({ signal: controller.signal });
+        setTimeout(() => controller.abort(new Error("stop")), 10);
+        await expect(pending).rejects.toThrow("stop");
+        expect(calls()).toBe(1);
+      } finally {
+        setSleep(previous);
+      }
+    });
+
+    it("an already-aborted signal does not wait at all", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      await expect(pause(10_000, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
     });
   });
 });

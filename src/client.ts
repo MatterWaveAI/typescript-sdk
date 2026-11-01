@@ -68,6 +68,10 @@ export const DEFAULT_MAX_RETRIES = 2;
 // capped, with jitter so a fleet of clients does not retry in lockstep.
 export const BACKOFF_BASE_MS = 500;
 export const BACKOFF_CAP_MS = 8_000;
+// The longest a retry may wait. A `Retry-After` beyond it (an hour, say) is
+// the server's way of saying "not now"; the error is thrown rather than the
+// call hanging until then, and carries the delay for the caller to decide.
+export const DEFAULT_MAX_RETRY_WAIT_MS = 60_000;
 // A 429 the server says is the organisation's budget, not the window.
 const NON_RETRYABLE_429_CODES = new Set(["insufficient_quota"]);
 // Methods a second copy of cannot add anything the first did not: reads, and
@@ -129,6 +133,8 @@ export interface ClientOptions {
   timeoutMs?: number;
   /** Retries after the first attempt, for 429 and 5xx. The default is 2. */
   maxRetries?: number;
+  /** The longest one retry may wait. A `Retry-After` beyond it throws the error instead, `retryAfter` set. The default is 60 seconds. */
+  maxRetryWaitMs?: number;
   /** Sent on every request, under the ones the client sets. */
   defaultHeaders?: Record<string, string>;
   /** A replacement `fetch`: a mock in tests, a wrapped one in an app. */
@@ -629,6 +635,7 @@ export class MatterWave {
   private readonly apiKey: string | null;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
+  private readonly maxRetryWaitMs: number;
   private readonly defaultHeaders: Record<string, string>;
   private readonly fetchImpl: Fetch;
   private readonly onRequest: ((request: { method: string; path: string }) => void) | null;
@@ -640,6 +647,8 @@ export class MatterWave {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     if (this.maxRetries < 0) throw new MatterWaveConfigError("maxRetries must be 0 or more");
+    this.maxRetryWaitMs = options.maxRetryWaitMs ?? DEFAULT_MAX_RETRY_WAIT_MS;
+    if (!(this.maxRetryWaitMs >= 0)) throw new MatterWaveConfigError("maxRetryWaitMs must be 0 or more");
     this.defaultHeaders = { ...(options.defaultHeaders ?? {}) };
     // Bound at construction: a bare `fetch` reference loses its `this` in
     // some runtimes, and an injected one is whatever the caller gave.
@@ -797,7 +806,7 @@ export class MatterWave {
                 { cause },
               );
         }
-        await sleeper(backoffMs(attempt, null));
+        await pause(backoffMs(attempt, null), options.signal);
         continue;
       }
       if (response.ok) {
@@ -812,8 +821,9 @@ export class MatterWave {
       stop.clear();
       this._lastResponse = new RawResponse(response);
       if (this.onResponse) this.onResponse(this._lastResponse);
-      if (attempt < maxRetries && shouldRetry(response, raw, repeatable)) {
-        await sleeper(backoffMs(attempt, retryAfterSeconds(response)));
+      const delay = backoffMs(attempt, retryAfterSeconds(response));
+      if (attempt < maxRetries && delay <= this.maxRetryWaitMs && shouldRetry(response, raw, repeatable)) {
+        await pause(delay, options.signal);
         continue;
       }
       throw errorFromResponse(response, raw);
@@ -855,20 +865,51 @@ function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-let sleeper: (ms: number) => Promise<void> = (ms) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>;
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("This operation was aborted", "AbortError");
+}
+
+let sleeper: Sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal!));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+/**
+ * @internal Wait the way the retry loop waits, so tests that replace it see
+ * every pause. The caller's `signal` ends the wait at once, with the
+ * signal's reason, whatever sleeper is installed.
+ */
+export async function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleeper(ms);
+  if (signal.aborted) throw abortReason(signal);
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleeper(ms, signal), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
 
 /**
  * Replace how the retry loop waits. Tests use it to measure the delays the
  * client asked for instead of waiting through them; it returns the previous
  * sleeper so they can put it back.
  */
-/** @internal Wait the way the retry loop waits, so tests that replace it see every pause. */
-export function pause(ms: number): Promise<void> {
-  return sleeper(ms);
-}
-
-export function setSleep(fn: (ms: number) => Promise<void>): (ms: number) => Promise<void> {
+export function setSleep(fn: Sleep): Sleep {
   const previous = sleeper;
   sleeper = fn;
   return previous;

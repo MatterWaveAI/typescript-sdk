@@ -198,7 +198,7 @@ export class ConversationStream implements AsyncIterable<ConversationFrame> {
         if (resumed || this.lastEventId === null) throw dropped(cause);
         resumed = true;
         this.controller.abort();
-        await pause(backoffMs(0, null));
+        await pause(backoffMs(0, null), this.options.signal);
         const next = await this.client.send(
           resumeRequest(this.prepared, this.conversationId, this.lastEventId),
           this.options,
@@ -572,7 +572,8 @@ export class DeviceAuth {
               code: "expired_token",
             });
       }
-      await pause(intervalS * 1000);
+      // An abort ends the wait at once and is reported as the login's own.
+      await pause(intervalS * 1000, options.signal).catch(() => undefined);
       if (options.signal?.aborted) throw new MatterWaveError("The device login was aborted.");
       try {
         return await this.poll(code.device_code, request);

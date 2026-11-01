@@ -89,7 +89,10 @@ body) is `APITimeoutError`.
 A 429 whose code is `rate_limit_exceeded` is retried up to `maxRetries` times
 (default 2) with exponential backoff and jitter, or for exactly `Retry-After`
 when the server sends one. A 429 whose code is `insufficient_quota` is thrown
-at once. A 5xx or a dropped connection is retried the same way for a request
+at once, and so is a 429 or 5xx whose `Retry-After` is longer than
+`maxRetryWaitMs` (default 60 seconds), with the delay in `err.retryAfter`; an
+abort on the call's `signal` ends a wait at once. A 5xx or a dropped
+connection is retried the same way for a request
 that is safe to send twice (GET, PUT, DELETE, and the read-only MCP calls). A
 POST or PATCH -- a message, a key, an upload -- is sent again only when the
 connection was never made: after a 5xx, a timeout or a reply cut short, the
