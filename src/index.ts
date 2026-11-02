@@ -60,7 +60,7 @@ export { PersonAuth, PersonSession, REFRESH_AHEAD_S } from "./person.js";
 export type { AuthConfig, PersonLoginOptions, PersonToken } from "./person.js";
 export { Auth, Conversations, ConversationStream, DeviceAuth, Instructions, Messages, RESUME_PLACEHOLDER, itemsOf, pagesOf } from "./conversations.js";
 export type { DeviceLoginOptions } from "./conversations.js";
-export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, summaryOf, visionOf } from "./conversation-types.js";
+export { APP_OPERATIONS, FEEDBACK_REASONS, REPORT_KINDS, localAgentToolsOf, summaryOf, toolsOf, visionOf } from "./conversation-types.js";
 export { Mcp, B64_PREFIX, B64_SUFFIX, DEFAULT_HANDSHAKE_VERSION, HANDSHAKE_VERSIONS, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, MODERN_VERSIONS, SEND_MESSAGE_TIMEOUT_MS, nameHeader } from "./mcp.js";
 export type { McpTool, McpToolResult, SendMessageResult, CallToolParams, McpSendMessageParams } from "./mcp.js";
 export { Accounts, Admin, AdminAnnouncements, Announcements, Attachments, Audit, BudgetClient, EntitlementsClient, Keys, LibraryClient, Mfa, Notifications, Passkeys, Shares, Sync, UsageClient, Webhooks } from "./native.js";
@@ -312,6 +312,7 @@ export type {
   SetFeedbackParams,
   SummaryPart,
   UpdateConversationParams,
+  ToolsVerdict,
   UserInstructions,
   VisionVerdict,
 } from "./conversation-types.js";

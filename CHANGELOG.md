@@ -144,6 +144,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `applyEdit` and `unifiedDiff` are the `agent` namespace of the main
   entry; the new `@matterwave/sdk/agent` entry (Node only) adds `confine`,
   `loadDenyList` and `resolveLinks`.
+- Agent contract `1.1.0`, regenerated from the Python SDK, all additions
+  (every 1.0.0 name and default behaviour is unchanged):
+  - The search rules: `IgnoreFile` and `SearchIgnore` (browser-safe; nested
+    `.gitignore` and `.matterwaveignore` files, `!`, directory-only and
+    anchored patterns, `**`, escapes, case ignored, the deny list on top),
+    and in `@matterwave/sdk/agent` the walker `walk(root, path)` and
+    `loadSearchIgnore(root)`.
+  - The read tools' output as the contract spells it (`OUTPUTS`,
+    `TOOL_ERRORS`, `ToolError`): `runReadFile`, `runListDir`, `runGlob` and
+    `runGrep` in `@matterwave/sdk/agent`, and the browser-safe
+    `formatReadFile`, `formatListDir`, `formatGlob`, `formatGrep` and
+    `formatShell` for a client that reads files or runs commands itself.
+    The contract carries their conformance cases (`CONTRACT.conformance`).
+  - Tool kinds beyond the seven: `network`, `mcp` and `meta`
+    (`TOOL_KINDS`, `KIND_DECISIONS`, `READ_ONLY_DECISIONS`, `ExtraTool`).
+    `allowed(tool, mode, kind, { readOnly, path })` decides a client's own
+    tool by its kind, and `toolsForMode(mode, extra)` offers them.
+  - `refusal(code, values)` and `APPROVAL_REFUSALS`: the wording for a tool
+    the mode denies, an unknown tool, a call the user rejected, a call a
+    headless run cannot ask about, and a protected file without approval.
+  - `systemPrompt(mode, root, { extraTools, contextFiles })`
+    (`ContextFile`): a "More tools" section and a fenced "Project
+    instructions" section for trusted context files; without them the
+    prompt is unchanged.
+  - `PROTECTED` adds `.matterwave/`, `MATTERWAVE.md`, `MATTERWAVE.local.md`
+    and `AGENTS.md` (`SETTINGS_DIR`, `CONTEXT_FILES`); a write to any of them
+    asks in every mode that allows writes (`allowed(..., { path })`,
+    `isProtected`), and `confine(..., { write: true, approved: true })` lets
+    an approved one through. `PROTECTED_LIST` and `EDIT_CRLF_FALLBACK` are
+    exported from the agent index.
+  - New limits: `read_max_file_bytes`, `grep_max_file_bytes` and
+    `binary_sniff_bytes`.
+  - `confine` refuses, on every platform, a name Windows would read as
+    another file or a device: alternate data streams and drive-relative
+    names (`stream`), a name ending in a dot or a space (`trailing`), CON,
+    PRN, AUX, NUL, COM1-9, LPT1-9, CONIN$ and CONOUT$ with or without an
+    extension (`device`), and `\\?\`, `\\.\`, `\??\` and UNC paths (`unc`);
+    `windowsAlias(path)` names the check on its own. A path the OS maps off the
+    root (`nul` on Windows) is now a refusal, never a bare error. The
+    contract's `conformance.paths` lists the cases every client must agree
+    on, the deny list's case-insensitive matches (`.ENV`, `ID_RSA`) among them.
+  - `PROTECTED` also covers what matters when the root is the home folder
+    or above it: `.bashrc`, `.bash_profile`, `.profile`, `.zshrc`,
+    `.zprofile`, `.ssh/`, `.aws/` and `.config/matterwave` at any depth.
+- Agent contract `1.2.0`, regenerated from the Python SDK, fixes from the
+  clients' testing. A minor version, as the contract's own rule asks, since
+  it adds the refusal `loop` and the tool errors `invalid_glob`,
+  `special_file` and `timeout`; a `Record<Refusal, ...>` or
+  `Record<ToolFailure, ...>` in a client must add them. Each observable fix
+  is a case in `CONTRACT.conformance`:
+  - `confine` checks Windows aliases only in the names below the root, so a
+    root inside `/x/con/`, `/x/a:b/` or `/x/x./` takes absolute paths into
+    it again; `windowsAlias(path, root)` is that check on its own.
+  - A leading byte-order mark in `.gitignore` or `.matterwaveignore` is
+    dropped, and an invalid line (a `[...]` range that runs backwards) is
+    skipped, as git does, instead of failing every search and `confine`.
+  - glob classes are translated so every regex dialect reads them alike (a
+    `]` first is literal instead of an empty JavaScript class), and a
+    backwards range is `GlobError` from `globToRegex` and the new
+    `invalid_glob` ToolError from `globMatches`, `runGlob` and `runGrep`.
+  - A loop of links is `PathRefusedError` with the new code `loop`, never a
+    bare `Error`, and the walker leaves such links out.
+  - `runReadFile` and `runGrep` read no more than the cap + 1 bytes; a
+    pipe, socket or device (or a link to one) is the new `special_file`
+    ToolError, is left out of searches, and is never waited on.
+  - `CONTEXT_FILES` is MATTERWAVE.md, AGENTS.md, MATTERWAVE.local.md, so
+    passed in that order the user's own file wins; the prompt slot's rules
+    say so.
+  - `formatShell(output, { omitted })` formats an output of which a client
+    kept only the start and the end; `fill`, `checkLines` and `limit` are
+    exported from the agent index.
+  - `walkAsync`, `runGlobAsync` and `runGrepAsync` (`@matterwave/sdk/agent`)
+    give the sync results but yield to the event loop every few
+    milliseconds, and stop on a `signal`: aborting it ends the walk (and
+    grep's workers) and rejects within a few milliseconds with the signal's
+    reason, or with the new `timeout` ToolError when it timed out
+    (`AbortSignal.timeout`). `runGrepAsync` hands batches of paths to two
+    worker threads kept for the search, which read the files and run the
+    regex; `timeoutS` is the regex's deadline (seconds of matching on each
+    thread, the walk and the reads not counted) and `maxDurationS` the whole
+    search's, each rejecting with `timeout`. A worker that fails to start or
+    exits partway rejects at once with `timeout`, its failure as the error's
+    `cause` (`ToolError` takes `{ cause }`). The sync forms are unchanged.
+  - The `PROTECTED_LIST` and `allowed()` docs name the whole 1.1 list.
+- `toolsOf(models, modelId)` and `localAgentToolsOf(me)`: the
+  `supports_tools` and `local_agent_tools` flags as `"yes"`, `"no"` or
+  `"unknown"` (`ToolsVerdict`), as `visionOf` reads `supports_vision`.
 - `tests/agent-conformance.json`, the conformance cases both SDKs' suites
   run, and `tests/agent-contract.test.ts`, which recomputes the copy's
   SHA-256 and compares it with the source when the Python SDK is beside
@@ -244,6 +331,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Dunning`, with `pay_url`.
 - `tests/openapi.json` refreshed from the app's export: the two penalty
   fields on `ChatCompletionRequest` and the `compacting` stream event.
+- The agent contract's `list_dir` and `glob` descriptions say what is left
+  out (ignored and denied entries; protected ones are listed) and that a
+  pattern with no `/` matches names at any depth.
 
 ### Removed
 
