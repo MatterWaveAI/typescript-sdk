@@ -20,8 +20,8 @@ describe("the exports map", () => {
     (entry): entry is [string, { import: Condition; require: Condition }] => typeof entry[1] !== "string",
   );
 
-  it("covers the main entry and the agent", () => {
-    expect(entries.map(([name]) => name)).toEqual([".", "./agent"]);
+  it("covers the main entry, the agent and pi", () => {
+    expect(entries.map(([name]) => name)).toEqual([".", "./agent", "./pi"]);
   });
 
   it.each(entries)("%s: import gets ESM declarations, require CommonJS ones", (_name, conditions) => {

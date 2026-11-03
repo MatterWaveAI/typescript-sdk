@@ -6,7 +6,7 @@ import { defineConfig } from "tsup";
 // `agent` adds path confinement, which reads the filesystem, so it is
 // Node-only and its `node:` imports stay external.
 export default defineConfig({
-  entry: { index: "src/index.ts", agent: "src/agent/node.ts" },
+  entry: { index: "src/index.ts", agent: "src/agent/node.ts", pi: "src/pi/index.ts" },
   external: [/^node:/],
   format: ["esm", "cjs"],
   dts: true,

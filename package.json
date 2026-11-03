@@ -50,12 +50,25 @@
         "default": "./dist/agent.cjs"
       }
     },
+    "./pi": {
+      "import": {
+        "types": "./dist/pi.d.ts",
+        "default": "./dist/pi.js"
+      },
+      "require": {
+        "types": "./dist/pi.d.cts",
+        "default": "./dist/pi.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
       "agent": [
         "./dist/agent.d.ts"
+      ],
+      "pi": [
+        "./dist/pi.d.ts"
       ]
     }
   },

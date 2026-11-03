@@ -337,6 +337,42 @@ export { ChatCompletionAccumulator, toolMessage } from "./accumulate.js";
 export { sseDataFrames, sseEvents } from "./sse.js";
 /** The agent tool contract and its browser-safe helpers; `@matterwave/sdk/agent` adds path confinement for Node. */
 export * as agent from "./agent/index.js";
+/** First-class Pi 1.0 (`@earendil-works/pi-coding-agent`) provider, extension and JSONL RPC integration (`@matterwave/sdk/pi`). */
+export * as pi from "./pi/index.js";
+export {
+  DEFAULT_PI_MODELS,
+  MATTERWAVE_PROVIDER_NAME,
+  ORG_HEADER,
+  PRESET_HEADER,
+  PiRpcClient,
+  TEMPORARY_HEADER,
+  buildPiProviderConfig,
+  createMatterWavePiExtension,
+  resolveClientApiKey,
+} from "./pi/index.js";
+export type {
+  MatterWavePiOptions,
+  PiCommandOptions,
+  PiExtensionAPI,
+  PiExtensionContext,
+  PiExtensionFactory,
+  PiExtensionUI,
+  PiModelCost,
+  PiModelDefinition,
+  PiOAuthCredentials,
+  PiOAuthLoginCallbacks,
+  PiProviderConfig,
+  PiProviderOAuthConfig,
+  PiRpcAssistantMessageDelta,
+  PiRpcClientOptions,
+  PiRpcCommand,
+  PiRpcCommandType,
+  PiRpcEvent,
+  PiRpcResponseEvent,
+  PiRpcSessionState,
+  PiToolCallEvent,
+  PiToolCallResult,
+} from "./pi/index.js";
 export type { SSEEvent } from "./sse.js";
 export {
   webhooks,

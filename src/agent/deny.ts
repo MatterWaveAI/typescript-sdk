@@ -203,6 +203,27 @@ export class DenyList {
  */
 export const PROTECTED_LIST = new DenyList(PROTECTED);
 
+/** The contract's default deny patterns (`.env*`, `*.pem`, `id_*`, `.git/`) compiled as a matcher. */
+export const DEFAULT_DENY_LIST = new DenyList(DEFAULT_DENY);
+
+/**
+ * Whether `path` is refused by the agent's deny rules (`DEFAULT_DENY_LIST` by
+ * default, or a custom `DenyList`), contains a `..` traversal or NUL byte, or
+ * matches a Windows device/stream/trailing-dot alias.
+ */
+export function isDeniedPath(
+  path: string,
+  options: { isDir?: boolean; deny?: DenyList; root?: string } = {},
+): boolean {
+  if (!path || path.trim() === "") return false;
+  if (path.includes("\0")) return true;
+  if (path.split(/[\\/]/).includes("..")) return true;
+  if (windowsAlias(path, options.root) !== null) return true;
+  const normalized = path.replace(/^[A-Za-z]:[\\/]?/, "");
+  const matcher = options.deny ?? DEFAULT_DENY_LIST;
+  return matcher.matches(normalized, { isDir: options.isDir });
+}
+
 /** Whether `relative` (to the root, `/`-separated) is one of the protected paths (`PROTECTED_LIST`), so a write to it needs the user's approval in every mode. */
 export function isProtected(relative: string, options: { isDir?: boolean } = {}): boolean {
   return PROTECTED_LIST.matches(relative, options);

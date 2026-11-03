@@ -73,17 +73,19 @@ export type {
   RefusalCode,
   ToolFailure,
 } from "./types.js";
-export { allowed, mode, platformName, refusal, shellFor, systemPrompt, toolsForMode } from "./modes.js";
-export type { PromptTool } from "./modes.js";
+export { agentAvailability, allowed, mode, platformName, refusal, shellFor, systemPrompt, toolsForMode } from "./modes.js";
+export type { AgentAvailability, AgentAvailabilityInput, PromptTool } from "./modes.js";
 export { EditError, applyEdit, occurrences } from "./edit.js";
 export { NO_NEWLINE, splitLines, unifiedDiff } from "./diff.js";
 export {
+  DEFAULT_DENY_LIST,
   DenyList,
   GlobError,
   PROTECTED_LIST,
   PathRefusedError,
   globToRegex,
   isAbsolute,
+  isDeniedPath,
   isProtected,
   windowsAlias,
 } from "./deny.js";
