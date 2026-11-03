@@ -15,6 +15,11 @@ export interface PiNamespace {
   createExtension(options?: MatterWavePiOptions): PiExtensionFactory;
   /** Spawn a `PiRpcClient` (`pi --mode rpc`) pre-configured with this client's `apiKey` and `baseUrl`. */
   createRpcClient(options?: Omit<PiRpcClientOptions, "client">): PiRpcClient;
+  /** Spawn a managed `PiRpcClient`, send `prompt(message)`, yield incoming `PiRpcEvent`s until turn/agent completion, and close. */
+  streamPrompt(
+    message: string,
+    options?: Omit<PiRpcClientOptions, "client">,
+  ): AsyncGenerator<PiRpcEvent, void, unknown>;
 }
 
 /** Per-million-token pricing metadata for a Pi 1.0 model definition. */

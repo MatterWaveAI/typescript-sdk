@@ -43,7 +43,7 @@ import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
 import { Connections, Presets } from "./connectors.js";
 import { buildPiProviderConfig, createMatterWavePiExtension } from "./pi/provider.js";
 import { PiRpcClient, type PiRpcClientOptions } from "./pi/rpc.js";
-import type { MatterWavePiOptions, PiNamespace } from "./pi/types.js";
+import type { MatterWavePiOptions, PiNamespace, PiRpcEvent } from "./pi/types.js";
 import { sseDataFrames } from "./sse.js";
 import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
 import type { LogLevel, Logger } from "./log.js";
@@ -917,16 +917,84 @@ export class MatterWave {
   /** Pi 1.0 (`@earendil-works/pi-coding-agent`) provider, extension and JSON-Lines RPC helpers bound to this client. */
   get pi(): PiNamespace {
     if (this._pi === null) {
+      const createRpcClient = (options: Omit<PiRpcClientOptions, "client"> = {}) =>
+        new PiRpcClient({
+          ...options,
+          client: this,
+          ...(options.apiKey === undefined && this.apiKey !== null ? { apiKey: this.apiKey } : {}),
+          ...(options.baseUrl === undefined ? { baseUrl: this.baseUrl } : {}),
+        });
+
+      const streamPrompt = async function* (
+        message: string,
+        options: Omit<PiRpcClientOptions, "client"> = {},
+      ): AsyncGenerator<PiRpcEvent, void, unknown> {
+        const rpc = createRpcClient(options);
+        try {
+          const eventStream = rpc.events({ signal: options.signal });
+          const promptPromise = rpc.prompt(message, { timeoutMs: options.timeoutMs });
+
+          // Observe prompt rejection immediately if it fails before or during event iteration
+          let promptError: unknown = null;
+          let promptCompleted = false;
+          let handledDirectly = false;
+
+          void promptPromise.then(
+            (res) => {
+              promptCompleted = true;
+              if (res.disposition === "handled") {
+                handledDirectly = true;
+              }
+            },
+            (err) => {
+              promptError = err;
+            },
+          );
+
+          for await (const ev of eventStream) {
+            if (promptError !== null) {
+              throw promptError;
+            }
+            if (ev.type === "response" && ev.command === "prompt") {
+              if (ev.success === false) {
+                throw new Error(ev.error ?? 'Pi RPC command "prompt" failed');
+              }
+              const data = ev.data as { disposition?: string } | undefined;
+              if (data?.disposition === "handled") {
+                break;
+              }
+              continue;
+            }
+            yield ev;
+            if ((ev as { type: string }).type === "error" || ev.type === "agent_end") {
+              break;
+            }
+            if (
+              ev.type === "turn_end" &&
+              (!Array.isArray(ev.toolResults) || ev.toolResults.length === 0)
+            ) {
+              break;
+            }
+          }
+
+          if (!promptCompleted) {
+            await promptPromise;
+          } else if (promptError !== null) {
+            throw promptError;
+          }
+          if (handledDirectly) {
+            return;
+          }
+        } finally {
+          await rpc.close();
+        }
+      };
+
       this._pi = {
         buildProviderConfig: (options?: MatterWavePiOptions) => buildPiProviderConfig(this, options),
         createExtension: (options?: MatterWavePiOptions) => createMatterWavePiExtension(this, options),
-        createRpcClient: (options: Omit<PiRpcClientOptions, "client"> = {}) =>
-          new PiRpcClient({
-            ...options,
-            client: this,
-            ...(options.apiKey === undefined && this.apiKey !== null ? { apiKey: this.apiKey } : {}),
-            ...(options.baseUrl === undefined ? { baseUrl: this.baseUrl } : {}),
-          }),
+        createRpcClient,
+        streamPrompt,
       };
     }
     return this._pi;

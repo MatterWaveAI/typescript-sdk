@@ -76,6 +76,38 @@ rl.on("line", (line) => {
       success: true,
       data: { summary: "Compacted context", customInstructions: cmd.customInstructions || null },
     });
+  } else if (cmd.type === "steer") {
+    send({
+      id: cmd.id,
+      type: "response",
+      command: "steer",
+      success: true,
+      data: { disposition: "steered", message: cmd.message },
+    });
+  } else if (cmd.type === "follow_up") {
+    send({
+      id: cmd.id,
+      type: "response",
+      command: "follow_up",
+      success: true,
+      data: { disposition: "queued", message: cmd.message },
+    });
+  } else if (cmd.type === "new_session") {
+    send({
+      id: cmd.id,
+      type: "response",
+      command: "new_session",
+      success: true,
+      data: { cancelled: false, parentSession: cmd.parentSession || null },
+    });
+  } else if (cmd.type === "get_messages") {
+    send({
+      id: cmd.id,
+      type: "response",
+      command: "get_messages",
+      success: true,
+      data: { messages: [{ role: "user", content: "Hello" }, { role: "assistant", content: "Hi!" }] },
+    });
   } else if (cmd.type === "abort") {
     send({
       id: cmd.id,
@@ -407,6 +439,22 @@ describe("PiRpcClient", () => {
         customInstructions: "Keep architecture decisions",
       });
 
+      const steerRes = await rpc.steer("Focus on error handling");
+      expect(steerRes.success).toBe(true);
+      expect(steerRes.disposition).toBe("steered");
+
+      const followUpRes = await rpc.followUp("Run tests next");
+      expect(followUpRes.success).toBe(true);
+      expect(followUpRes.disposition).toBe("queued");
+
+      const newSessionRes = await rpc.newSession("sess_parent_00");
+      expect(newSessionRes.success).toBe(true);
+      expect(newSessionRes.cancelled).toBe(false);
+
+      const messagesRes = await rpc.getMessages();
+      expect(messagesRes.success).toBe(true);
+      expect(messagesRes.messages).toHaveLength(2);
+
       // 3. Stream events from a prompt turn via both onEvent and events() async iterator
       const seenByCallback: PiRpcEvent[] = [];
       const unsub = rpc.onEvent((ev) => seenByCallback.push(ev));
@@ -535,5 +583,23 @@ describe("client.pi namespace", () => {
     } finally {
       await rpc.close();
     }
+
+    // 4. client.pi.streamPrompt()
+    const streamedEvents: PiRpcEvent[] = [];
+    for await (const ev of c.pi.streamPrompt("Stream via helper", {
+      command: process.execPath,
+      args: ["-e", MOCK_RPC_SCRIPT],
+    })) {
+      streamedEvents.push(ev);
+    }
+    const streamedTypes = streamedEvents.map((e) => e.type);
+    expect(streamedTypes).toContain("agent_start");
+    expect(streamedTypes).toContain("message_update");
+    expect(streamedTypes).toContain("turn_end");
+    const streamedText = streamedEvents
+      .filter((e): e is Extract<PiRpcEvent, { type: "message_update" }> => e.type === "message_update")
+      .map((e) => e.assistantMessageEvent?.delta)
+      .join("");
+    expect(streamedText).toBe("Inspecting done.");
   });
 });
