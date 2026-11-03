@@ -468,3 +468,72 @@ describe("PiRpcClient", () => {
     }
   });
 });
+
+describe("client.pi namespace", () => {
+  it("exposes buildProviderConfig, createExtension, and createRpcClient bound to the MatterWave client", async () => {
+    const { fetch, seen } = stubFetch([
+      json({
+        object: "list",
+        data: [{ id: "grt-1", object: "model", created: 1700000000, owned_by: "matterwave" }],
+      }),
+      json({
+        object: "list",
+        data: [{ id: "grt-1", object: "model", created: 1700000000, owned_by: "matterwave" }],
+      }),
+    ]);
+    const c = new MatterWave({
+      apiKey: API_KEY,
+      baseUrl: BASE_URL,
+      fetch,
+      defaultHeaders: { "X-Client-Header": "bound" },
+    });
+
+    expect(c.pi).toBe(c.pi);
+
+    // 1. client.pi.buildProviderConfig()
+    const cfg = await c.pi.buildProviderConfig({
+      presetId: "preset_bound",
+      temporary: true,
+    });
+    expect(seen).toHaveLength(1);
+    expect(cfg.baseUrl).toBe(`${BASE_URL}/v1`);
+    expect(cfg.apiKey).toBe(API_KEY);
+    expect(cfg.headers).toEqual({
+      "X-Client-Header": "bound",
+      [PRESET_HEADER]: "preset_bound",
+      [TEMPORARY_HEADER]: "true",
+    });
+    expect(cfg.models.map((m) => m.id)).toEqual(["grt-1"]);
+
+    // 2. client.pi.createExtension()
+    const registeredProviders = new Map<string, PiProviderConfig>();
+    const registeredCommands = new Map<string, PiCommandOptions>();
+    const ext = c.pi.createExtension({ presetId: "preset_ext" });
+    await ext({
+      registerProvider(name, providerCfg) {
+        registeredProviders.set(name, providerCfg);
+      },
+      registerCommand(name, cmdOpts) {
+        registeredCommands.set(name, cmdOpts);
+      },
+      on() {},
+    });
+    expect(registeredProviders.get(MATTERWAVE_PROVIDER_NAME)?.headers?.[PRESET_HEADER]).toBe("preset_ext");
+    expect(registeredCommands.has("preset")).toBe(true);
+    expect(registeredCommands.has("temporary")).toBe(true);
+
+    // 3. client.pi.createRpcClient()
+    const rpc = c.pi.createRpcClient({
+      command: process.execPath,
+      args: ["-e", MOCK_RPC_SCRIPT],
+    });
+    try {
+      const state = await rpc.getState();
+      expect(state.success).toBe(true);
+      expect(state.envKey).toBe(API_KEY);
+      expect(state.envUrl).toBe(BASE_URL);
+    } finally {
+      await rpc.close();
+    }
+  });
+});

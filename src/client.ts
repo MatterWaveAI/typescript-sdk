@@ -41,6 +41,9 @@ import { Accounts, Mfa, Passkeys, Sync } from "./native.js";
 import { Account, Billing, Exports, Imports, Plans, Policy, PreferencesClient, Sessions, Speech } from "./account.js";
 import { InviteLinks, Invites, Members, OrgClient } from "./org.js";
 import { Connections, Presets } from "./connectors.js";
+import { buildPiProviderConfig, createMatterWavePiExtension } from "./pi/provider.js";
+import { PiRpcClient, type PiRpcClientOptions } from "./pi/rpc.js";
+import type { MatterWavePiOptions, PiNamespace } from "./pi/types.js";
 import { sseDataFrames } from "./sse.js";
 import { LOG_ENV, RequestLog, logLevelOf } from "./log.js";
 import type { LogLevel, Logger } from "./log.js";
@@ -818,6 +821,7 @@ export class MatterWave {
   readonly connections: Connections;
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   private _lastResponse: RawResponse | null = null;
+  private _pi: PiNamespace | null = null;
   private readonly apiKey: string | null;
   private readonly accessToken: string | AccessTokenProvider | null;
   private readonly timeoutMs: number;
@@ -908,6 +912,24 @@ export class MatterWave {
   /** The last HTTP response received, success or refusal; null until something has been sent. */
   get lastResponse(): RawResponse | null {
     return this._lastResponse;
+  }
+
+  /** Pi 1.0 (`@earendil-works/pi-coding-agent`) provider, extension and JSON-Lines RPC helpers bound to this client. */
+  get pi(): PiNamespace {
+    if (this._pi === null) {
+      this._pi = {
+        buildProviderConfig: (options?: MatterWavePiOptions) => buildPiProviderConfig(this, options),
+        createExtension: (options?: MatterWavePiOptions) => createMatterWavePiExtension(this, options),
+        createRpcClient: (options: Omit<PiRpcClientOptions, "client"> = {}) =>
+          new PiRpcClient({
+            ...options,
+            client: this,
+            ...(options.apiKey === undefined && this.apiKey !== null ? { apiKey: this.apiKey } : {}),
+            ...(options.baseUrl === undefined ? { baseUrl: this.baseUrl } : {}),
+          }),
+      };
+    }
+    return this._pi;
   }
 
   /**
@@ -1176,6 +1198,8 @@ export class MatterWave {
     return headers;
   }
 }
+
+export { MatterWave as MatterWaveClient };
 
 /** The URL with the call's extra query parameters added after any it already has. */
 function withQuery(url: string, query: Record<string, string> | undefined): string {

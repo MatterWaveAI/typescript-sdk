@@ -5,6 +5,17 @@
  */
 
 import type { AgentAvailabilityInput, DenyList } from "../agent/index.js";
+import type { PiRpcClient, PiRpcClientOptions } from "./rpc.js";
+
+/** Bound `client.pi` resource namespace on a `MatterWave` client instance. */
+export interface PiNamespace {
+  /** Construct the Pi 1.0 `ProviderConfig` for `pi.registerProvider("matterwave", ...)`. */
+  buildProviderConfig(options?: MatterWavePiOptions): Promise<PiProviderConfig>;
+  /** Create a Pi 1.0 extension function `(pi) => Promise<void>` bound to this client. */
+  createExtension(options?: MatterWavePiOptions): PiExtensionFactory;
+  /** Spawn a `PiRpcClient` (`pi --mode rpc`) pre-configured with this client's `apiKey` and `baseUrl`. */
+  createRpcClient(options?: Omit<PiRpcClientOptions, "client">): PiRpcClient;
+}
 
 /** Per-million-token pricing metadata for a Pi 1.0 model definition. */
 export interface PiModelCost {

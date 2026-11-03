@@ -15,6 +15,7 @@ export type {
   PiExtensionUI,
   PiModelCost,
   PiModelDefinition,
+  PiNamespace,
   PiOAuthCredentials,
   PiOAuthLoginCallbacks,
   PiProviderConfig,

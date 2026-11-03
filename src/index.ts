@@ -34,6 +34,7 @@
 
 export {
   MatterWave,
+  MatterWaveClient,
   Chat,
   Completions,
   Embeddings,
@@ -359,6 +360,7 @@ export type {
   PiExtensionUI,
   PiModelCost,
   PiModelDefinition,
+  PiNamespace,
   PiOAuthCredentials,
   PiOAuthLoginCallbacks,
   PiProviderConfig,
