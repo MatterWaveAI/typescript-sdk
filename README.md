@@ -109,10 +109,10 @@ streamed request is retried only before its stream starts.
 
 Every write (any method but GET) carries an `Idempotency-Key` header: a fresh
 UUID per call, the same on each of its retries, so the server can recognise a
-repeat. `{ idempotencyKey }` in a call's options supplies your own, for a write
-whose retries may come from another process. The API does not yet answer a
-repeated key with the first result, so the narrower retry rule for writes
-above still applies.
+repeat. `{ idempotencyKey }` in a call's options (or `client.withOptions`)
+supplies your own, for a write whose retries may come from another process, and
+lifts the write retry restriction for that call so 5xx responses and dropped
+connections are retried with the same key.
 
 ### Logging and deprecations
 
@@ -607,6 +607,14 @@ platform's route document (the drift test holds the two together):
 
 A scope never widens a role: the org routes still need the org role they ask of a
 person, whichever credential carries it.
+
+## What the SDK does not cover
+
+Three platform route families are intentionally outside the SDK surface (`tests/routes-not-covered.json` records each prefix and the drift test verifies the partition):
+
+1. **App-store installation & manifest routes (`/api/v1/apps/*`)** — first-party web shell and person-session routes used by the browser app container.
+2. **Edge appliance box sync routes (`/api/sync/*`)** — internal box-token replication routes used by the Raspberry Pi / edge sync daemon (`client.sync` — `client.edge` in 0.5.0 — covers the user-facing pairing, status and conversation push routes).
+3. **Platform operator routes (`/api/admin/*`) and browser-cookie session switchers (`/api/accounts/*` cookie flow)** — internal operator console routes beyond `client.admin.announcements`, and browser cookie jar flows (`client.accounts` covers bearer-compatible account listing and switching).
 
 ## Connect your editor to MatterWave
 

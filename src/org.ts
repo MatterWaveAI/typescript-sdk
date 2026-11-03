@@ -83,7 +83,7 @@ function idpBody(params: AttachIdpParams): Record<string, unknown> {
   if (!params.name?.trim()) throw new MatterWaveConfigError("name must not be blank");
   if (!params.issuer?.startsWith("https://")) throw new MatterWaveConfigError("issuer must be an https:// URL");
   if (!params.client_id?.trim()) throw new MatterWaveConfigError("client_id must not be blank");
-  if (!params.client_secret) throw new MatterWaveConfigError("client_secret must be non-empty");
+  if (!params.client_secret?.trim()) throw new MatterWaveConfigError("client_secret must be non-empty");
   const body: Record<string, unknown> = {
     kind,
     name: params.name,

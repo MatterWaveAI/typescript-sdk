@@ -1133,7 +1133,17 @@ export class MatterWave {
     const maxRetries = options.maxRetries ?? this.maxRetries;
     const maxRetryWaitMs = options.maxRetryWaitMs ?? this.maxRetryWaitMs;
     const timeoutMs = options.timeoutMs ?? prepared.timeoutMs ?? this.timeoutMs;
-    const repeatable = safeToRepeat(prepared);
+    const explicitIdempotencyKey =
+      !READ_METHODS.has(prepared.method) &&
+      (options.idempotencyKey !== undefined ||
+        this.idempotencyKey !== null ||
+        Object.keys({
+          ...this.defaultHeaders,
+          ...(prepared.headers ?? {}),
+          ...(options.headers ?? {}),
+          ...(options.extraHeaders ?? {}),
+        }).some((name) => name.toLowerCase() === IDEMPOTENCY_HEADER.toLowerCase()));
+    const repeatable = safeToRepeat(prepared) || explicitIdempotencyKey;
     // A FormData goes as it is, so fetch writes the multipart boundary; it
     // can be sent again on a retry, unlike a stream.
     const body =

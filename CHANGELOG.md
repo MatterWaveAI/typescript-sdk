@@ -275,11 +275,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A POST or PATCH is retried only after a 429 or a connection that was
-  never made. After a 5xx, a timeout or a reply cut short the first copy may
-  have taken effect -- a message stored and billed, a key minted -- so the
-  error is thrown instead. GET, PUT, DELETE and the read-only MCP calls
-  retry as before.
+- An unkeyed POST or PATCH is retried only after a 429 or a connection that
+  was never made; when the caller supplies an explicit `idempotencyKey`
+  (`{ idempotencyKey }` in `RequestOptions`, `client.withOptions`, or an
+  `Idempotency-Key` header), the write retry restriction is lifted and 5xx
+  responses and dropped connections are retried with the same key. GET, PUT,
+  DELETE and the read-only MCP calls retry as before.
 - Node 20 or later (`engines`): Node 18 is out of support and lacks the
   global Web Crypto the webhooks and the idempotency keys use.
 - No runtime dependency: `parse` takes any schema with a `parse` method, so
@@ -314,7 +315,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `billing.checkout(plan, { annual })` take the bare value, and
   `preferences.update` takes the flat keys (`product_updates`,
   `usage_alerts`, `budget_warn`, `locale`). `org.idps.attach` refuses a
-  blank `name` or `client_id` and an empty `client_secret` before sending.
+  blank `name`, `client_id` or `client_secret` before sending, and
+  `account.delete` requires `confirm: "delete my account"`.
 - `org.domains` and `org.idps` are namespaces, so the lists are
   `org.domains.list()` and `org.idps.list()` rather than `org.domains()`
   and `org.idps()`.

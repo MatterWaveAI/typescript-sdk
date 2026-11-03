@@ -72,6 +72,20 @@ describe("idempotency keys", () => {
     expect(seen.map((s) => keyOf(s.headers))).toEqual(["job-42", "job-42"]);
   });
 
+  it("an explicit idempotencyKey lifts the write retry restriction on 5xx and dropped connections", async () => {
+    const reset = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" }),
+    });
+    const { fetch, seen } = stubFetch([
+      json(errorBody("bad gateway", "server_error", "upstream_error"), 502),
+      reset,
+      json({ id: "k-1", key: "mw_x" }, 201),
+    ]);
+    const created = await client(fetch).keys.create({ name: "ci" }, { idempotencyKey: "job-99" });
+    expect(created.id).toBe("k-1");
+    expect(seen.map((s) => keyOf(s.headers))).toEqual(["job-99", "job-99", "job-99"]);
+  });
+
   it("a withOptions view carries its key on writes only", async () => {
     const { fetch, seen } = stubFetch([json(completionBody()), json(ME)]);
     const view = client(fetch).withOptions({ idempotencyKey: "job-7" });
