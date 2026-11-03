@@ -23,9 +23,15 @@ import type { AnnouncementSeverity } from "../src/index.js";
 import { API_KEY, BASE_URL, REQUEST_ID, client, json, stubFetch, text } from "./helpers.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-// The app's routers: a monorepo checkout keeps them beside this one; the
-// sibling checkouts of this workspace keep them one repo over.
-const ROUTES = ["../../../api/matterwave", "../../../matterwave-app/api/matterwave"]
+// The app's routers: MATTERWAVE_APP_DIR when set, or beside this checkout in
+// a monorepo or sibling workspace layout.
+const ROUTES = [
+  ...(process.env.MATTERWAVE_APP_DIR ? [join(process.env.MATTERWAVE_APP_DIR, "api/matterwave")] : []),
+  "../../api/matterwave",
+  "../../matterwave-app/api/matterwave",
+  "../../../api/matterwave",
+  "../../../matterwave-app/api/matterwave",
+]
   .map((p) => resolve(here, p))
   .find((p) => existsSync(p))!;
 const NATIVE = [

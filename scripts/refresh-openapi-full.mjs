@@ -137,7 +137,9 @@ function main(argv) {
   const check = argv.includes("--check");
   const refAt = argv.indexOf("--ref");
   const ref = refAt === -1 ? "HEAD" : argv[refAt + 1];
-  const checkout = argv.find((a, i) => !a.startsWith("--") && (refAt === -1 || i !== refAt + 1));
+  const checkout =
+    argv.find((a, i) => !a.startsWith("--") && (refAt === -1 || i !== refAt + 1)) ??
+    process.env.MATTERWAVE_APP_DIR;
   if (!checkout || !ref) {
     console.error("usage: refresh-openapi-full.mjs <platform-checkout> [--ref <ref>] [--check]");
     return 2;

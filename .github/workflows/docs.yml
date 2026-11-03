@@ -1,6 +1,6 @@
-# The API reference: typedoc over the package's two entry points ("." and
-# "./agent"), failing on any warning, checked to cover every export, and
-# uploaded as the `api-reference` artifact. That artifact is what the docs
+# The API reference: typedoc over the package's three entry points (".",
+# "./agent" and "./pi"), failing on any warning, checked to cover every export,
+# and uploaded as the `api-reference` artifact. That artifact is what the docs
 # site publishes.
 name: docs
 
@@ -26,7 +26,7 @@ jobs:
       - run: pnpm build
       - name: Build the reference
         run: >
-          pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts
+          pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts src/pi/index.ts
           --excludeInternal --treatWarningsAsErrors --out reference --json reference.json
       - name: Every export has its page
         run: node scripts/check-reference.mjs reference.json

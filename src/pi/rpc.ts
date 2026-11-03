@@ -6,7 +6,7 @@
  * on `close()` or `AbortSignal`.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 import { API_KEY_ENV, BASE_URL_ENV, envValue, type MatterWave } from "../client.js";
 import type {
   PiRpcCommand,
@@ -14,6 +14,23 @@ import type {
   PiRpcResponseEvent,
   PiRpcSessionState,
 } from "./types.js";
+
+type SpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptionsWithoutStdio,
+) => ChildProcessWithoutNullStreams;
+
+function getSpawn(): SpawnFn {
+  const proc = (
+    globalThis as {
+      process?: { getBuiltinModule?: (id: string) => { spawn?: SpawnFn } | undefined };
+    }
+  ).process;
+  const builtin = proc?.getBuiltinModule?.("node:child_process");
+  if (builtin?.spawn) return builtin.spawn;
+  throw new Error("PiRpcClient requires a Node-compatible runtime with node:child_process.");
+}
 
 /** Configuration options for `PiRpcClient`. */
 export interface PiRpcClientOptions {
@@ -129,7 +146,7 @@ export class PiRpcClient {
     }
     if (this.child) return this.child;
 
-    const proc = spawn(this.command, [...this.args], {
+    const proc = getSpawn()(this.command, [...this.args], {
       cwd: this.cwd,
       env: this.env as NodeJS.ProcessEnv,
       stdio: ["pipe", "pipe", "pipe"],

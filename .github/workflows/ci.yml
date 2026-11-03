@@ -53,8 +53,11 @@ jobs:
       - name: Check out the Python SDK beside this repo
         env:
           BRANCH: ${{ github.head_ref || github.ref_name }}
+          BASE_BRANCH: ${{ github.base_ref || 'develop' }}
         run: |
           git clone --depth 1 --branch "$BRANCH" https://github.com/MatterWaveAI/python-sdk ../python-sdk \
+            || git clone --depth 1 --branch "$BASE_BRANCH" https://github.com/MatterWaveAI/python-sdk ../python-sdk \
+            || git clone --depth 1 --branch develop https://github.com/MatterWaveAI/python-sdk ../python-sdk \
             || git clone --depth 1 https://github.com/MatterWaveAI/python-sdk ../python-sdk
       - run: pnpm lint
       - name: No private ticket ids in tracked files
@@ -63,6 +66,7 @@ jobs:
       - run: pnpm test
         env:
           MATTERWAVE_AGENT_CONTRACT: ../python-sdk/src/matterwave_sdk/agent/contract.json
+          MATTERWAVE_SIBLING_SDK: ../python-sdk
       - run: pnpm build
       # Each module format resolves to declarations of its own format.
       - run: pnpm attw

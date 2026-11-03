@@ -42,7 +42,15 @@ describe("the workflows", () => {
   });
 
   it("run every local check, on Node 20, 22 and 24", () => {
-    for (const check of ["pnpm lint", "pnpm typecheck", "pnpm test", "pnpm build", "pnpm attw", "sh scripts/check-ticket-ids.sh"]) {
+    for (const check of [
+      "pnpm lint",
+      "pnpm typecheck",
+      "pnpm test",
+      "pnpm build",
+      "pnpm attw",
+      "sh scripts/check-ticket-ids.sh",
+      "MATTERWAVE_SIBLING_SDK",
+    ]) {
       expect(CI).toContain(check);
     }
     expect(CI).toMatch(/node: \[20, 22, 24\]/);

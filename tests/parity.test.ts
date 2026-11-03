@@ -24,7 +24,8 @@ import { chunk, client, completionBody, json, sse, stubFetch } from "./helpers.j
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SURFACE = join(ROOT, "tests", "surface.json");
 const PARITY = join(ROOT, "tests", "parity.json");
-const SIBLING = process.env.MATTERWAVE_SIBLING_SDK ?? resolve(ROOT, "..", "python-sdk");
+const CONFIGURED = process.env.MATTERWAVE_SIBLING_SDK;
+const SIBLING = CONFIGURED ?? resolve(ROOT, "..", "python-sdk");
 
 interface Parity {
   python_only: Record<string, string>;
@@ -112,7 +113,7 @@ describe("parity with the Python SDK", () => {
     }
   });
 
-  it.skipIf(!existsSync(join(SIBLING, "tests", "surface.json")))(
+  it.skipIf(CONFIGURED === undefined && !existsSync(join(SIBLING, "tests", "surface.json")))(
     "the Python SDK differs only where tests/parity.json says",
     () => {
       const parity = load<Parity>(PARITY);

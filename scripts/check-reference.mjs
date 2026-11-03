@@ -2,13 +2,13 @@
 // Check a built API reference covers the whole public surface.
 //
 //     pnpm build
-//     pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts \
+//     pnpm dlx typedoc@0.28.14 --entryPoints src/index.ts src/agent/node.ts src/pi/index.ts \
 //       --excludeInternal --treatWarningsAsErrors --out reference --json reference.json
 //     node scripts/check-reference.mjs reference.json
 //
 // typedoc fails on its own when a documented signature names a type the
 // reference leaves out (--treatWarningsAsErrors). This adds the other half:
-// every value the built package exports from "." and "./agent" -- each
+// every value the built package exports from ".", "./agent" and "./pi" -- each
 // class, function and constant -- has its entry under that module in the
 // reference, so nothing exported goes missing from the published pages.
 // Exits 1 and lists what is absent. The same check as the Python SDK's
@@ -16,7 +16,11 @@
 
 import { readFileSync } from "node:fs";
 
-const MODULES = { "@matterwave/sdk": "../dist/index.js", "@matterwave/sdk/agent": "../dist/agent.js" };
+const MODULES = {
+  "@matterwave/sdk": "../dist/index.js",
+  "@matterwave/sdk/agent": "../dist/agent.js",
+  "@matterwave/sdk/pi": "../dist/pi.js",
+};
 
 async function main(argv) {
   if (argv.length !== 1) {

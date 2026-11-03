@@ -11,6 +11,7 @@ import { run as chat } from "../examples/chat.js";
 import { run as deviceSignIn } from "../examples/device-sign-in.js";
 import type { Io } from "../examples/io.js";
 import { run as pagination } from "../examples/pagination.js";
+import { run as piRpc } from "../examples/pi-rpc.js";
 import { run as streaming } from "../examples/streaming.js";
 import { run as structuredOutput } from "../examples/structured-output.js";
 import { receive } from "../examples/webhook-receiver.js";
@@ -149,5 +150,50 @@ describe("the examples", () => {
     expect(lines.slice(1, 6)).toEqual([0, 1, 2, 3, 4].map((i) => `match: Invoice ${i}`));
     expect(lines[6]).toBe("pinned: Tp1");
     expect(seen.filter((s) => s.url.includes("/api/search"))).toHaveLength(1);
+  });
+
+  it("pi-rpc builds the provider config, registers the extension, and streams a prompt over JSONL RPC", async () => {
+    const models = () =>
+      json({
+        object: "list",
+        data: [
+          { id: "grt-1", object: "model", created: 1700000000, owned_by: "matterwave" },
+          { id: "grt-1-mini", object: "model", created: 1700000000, owned_by: "matterwave" },
+        ],
+      });
+    const { fetch } = stubFetch([models(), models()]);
+    const script = `
+      const readline = require("node:readline");
+      const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+      const send = (obj) => process.stdout.write(JSON.stringify(obj) + "\\n");
+      rl.on("line", (line) => {
+        if (!line.trim()) return;
+        const cmd = JSON.parse(line);
+        if (cmd.type === "get_state") {
+          send({
+            id: cmd.id,
+            type: "response",
+            command: "get_state",
+            success: true,
+            data: { sessionId: "sess_1", isStreaming: false, isCompacting: false, messageCount: 0, pendingMessageCount: 0 },
+          });
+        } else if (cmd.type === "prompt") {
+          send({ id: cmd.id, type: "response", command: "prompt", success: true, data: { disposition: "started" } });
+          send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hello " } });
+          send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "from Pi." } });
+          send({ type: "agent_end", messages: [] });
+        }
+      });
+    `;
+    const io = capture();
+    const code = await piRpc(client(fetch), "Summarize src/index.ts", io, {
+      presetId: "preset_1",
+      temporary: true,
+      rpc: { command: process.execPath, args: ["-e", script] },
+    });
+    expect(code).toBe(0);
+    expect(io.out).toBe(
+      `[provider: ${BASE_URL}/v1 (2 models, commands: preset, temporary)]\nHello from Pi.\n[session sess_1: grt-1]\n`,
+    );
   });
 });
