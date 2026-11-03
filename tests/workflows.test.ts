@@ -68,7 +68,18 @@ describe("the workflows", () => {
     expect(CI).toContain("./gitleaks git");
   });
 
+  it("align branch triggers across ci and docs", () => {
+    const expected =
+      "on:\n  push:\n    branches: [develop, main]\n  pull_request:\n    branches: [develop, main]";
+    expect(CI).toContain(expected);
+    expect(DOCS).toContain(expected);
+    expect(DRIFT).toContain("schedule:");
+    expect(DRIFT).toContain("workflow_dispatch:");
+  });
+
   it("make a release check its tag and ship an SBOM and notes", () => {
+    expect(PUBLISH).toContain("git fetch origin main");
+    expect(PUBLISH).toContain('git merge-base --is-ancestor "$GITHUB_SHA" origin/main');
     expect(PUBLISH).toContain("if: github.ref_type == 'tag'");
     expect(PUBLISH).toContain("scripts/release.mjs check-tag");
     expect(PUBLISH).toContain("npm sbom --sbom-format cyclonedx");
@@ -78,6 +89,22 @@ describe("the workflows", () => {
 });
 
 describe("the repository", () => {
+  it("documents the release process in RELEASING.md", () => {
+    const releasing = read("RELEASING.md");
+    for (const item of [
+      "develop",
+      "main",
+      "package.json",
+      "src/version.ts",
+      "CHANGELOG.md",
+      "vX.Y.Z",
+      "publish-npm.yml",
+      "git merge-base --is-ancestor",
+    ]) {
+      expect(releasing).toContain(item);
+    }
+  });
+
   it("names a code owner for every path", () => {
     const rules = read(".github/CODEOWNERS")
       .split("\n")
