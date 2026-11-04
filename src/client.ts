@@ -65,6 +65,40 @@ import type {
 import type { Me } from "./conversation-types.js";
 import type { AppModelList } from "./conversation-types.js";
 import type { ConversationSource } from "./conversation-types.js";
+import type {
+  CheckpointList,
+  ConnectorCatalogList,
+  CredentialProxyResponse,
+  DecisionTrail,
+  EnforceClaimsResult,
+  EnforceOidcClaimsParams,
+  EvaluateGuardrailsOptions,
+  GetReliabilityMetricsOptions,
+  GuardrailEvaluation,
+  GuardrailType,
+  HitlInteraction,
+  HitlInteractionList,
+  ListConnectorCatalogParams,
+  ListHitlInteractionsOptions,
+  OAuthAuthenticator,
+  OidcConfig,
+  OidcSyncResult,
+  PlanToolsOptions,
+  ProxyOAuthRequestOptions,
+  RegisterOAuthAuthenticatorParams,
+  ReliabilityMetrics,
+  ReliabilitySloReport,
+  ReliabilityTrends,
+  ReplayMode,
+  ReplayRunOptions,
+  ReplayRunResult,
+  RespondHitlInteractionOptions,
+  ResumeRunOptions,
+  ResumeRunResult,
+  TelemetryExecutionMetrics,
+  TelemetryStackStatus,
+  ToolPlan,
+} from "./platform-types.js";
 
 export const VERSION = "0.5.0";
 export const API_KEY_ENV = "MATTERWAVE_API_KEY";
@@ -1060,6 +1094,300 @@ export class MatterWave {
     );
   }
 
+  /** `GET /api/v1/oidc/config`: the deployment's OIDC identity provider configuration. */
+  getOidcConfig(options: RequestOptions = {}): Promise<WithRequestId<OidcConfig>> {
+    return this.json<OidcConfig>(
+      { method: "GET", path: "/api/v1/oidc/config", body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `POST /api/v1/agent-keys/{key_id}/oidc-sync`: synchronize OIDC client credentials and A2A claims for `keyId`. */
+  syncAgentKeyOidc(keyId: string, options: RequestOptions = {}): Promise<WithRequestId<OidcSyncResult>> {
+    const seg = pathSegment("keyId", keyId);
+    return this.json<OidcSyncResult>(
+      { method: "POST", path: `/api/v1/agent-keys/${seg}/oidc-sync`, body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `POST /api/v1/oidc/enforce-claims`: evaluate an agent key's A2A permission envelope against a run request. */
+  enforceOidcClaims(
+    payload: EnforceOidcClaimsParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<EnforceClaimsResult>> {
+    if (!payload || typeof payload !== "object" || Object.keys(payload).length === 0) {
+      throw new MatterWaveConfigError("payload must not be empty");
+    }
+    return this.json<EnforceClaimsResult>(
+      { method: "POST", path: "/api/v1/oidc/enforce-claims", body: payload, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `GET /api/v1/connectors/catalog`: list providers in the universal connector catalog. */
+  listConnectorCatalog(
+    paramsOrCategory?: ListConnectorCatalogParams | string | null,
+    q?: string | null,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<ConnectorCatalogList>> {
+    let category: string | undefined;
+    let searchQ: string | undefined;
+    let reqOptions: RequestOptions = options;
+    if (typeof paramsOrCategory === "string") {
+      category = paramsOrCategory;
+      searchQ = q ?? undefined;
+    } else if (paramsOrCategory && typeof paramsOrCategory === "object") {
+      const { category: cat, q: queryStr, ...rest } = paramsOrCategory;
+      category = cat;
+      searchQ = queryStr ?? (q ?? undefined);
+      reqOptions = { ...rest, ...options };
+    } else if (q != null) {
+      searchQ = q;
+    }
+    const qs = buildQuery({ category, q: searchQ });
+    return this.json<ConnectorCatalogList>(
+      { method: "GET", path: `/api/v1/connectors/catalog${qs}`, body: undefined, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `POST /api/v1/oauth/register`: register an OAuth authenticator for a connector catalog provider. */
+  registerOAuthAuthenticator(
+    payload: RegisterOAuthAuthenticatorParams,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<OAuthAuthenticator>> {
+    if (!payload || typeof payload !== "object" || Object.keys(payload).length === 0) {
+      throw new MatterWaveConfigError("payload must not be empty");
+    }
+    return this.json<OAuthAuthenticator>(
+      { method: "POST", path: "/api/v1/oauth/register", body: payload, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `POST /api/v1/oauth/proxy/{credential_id}`: proxy an outbound API request through the credential broker. */
+  proxyOAuthRequest(
+    credentialId: string,
+    endpoint: string,
+    methodOrOptions: string | ProxyOAuthRequestOptions = "GET",
+    options: ProxyOAuthRequestOptions = {},
+  ): Promise<WithRequestId<CredentialProxyResponse>> {
+    const seg = pathSegment("credentialId", credentialId);
+    const cleanedEndpoint = requireNonBlank("endpoint", endpoint);
+    const merged: ProxyOAuthRequestOptions =
+      typeof methodOrOptions === "string" ? { ...options, method: methodOrOptions } : { ...methodOrOptions, ...options };
+    const { method = "GET", params, headers, body, dryRun, dry_run, ...reqOptions } = merged;
+    const payload: Record<string, unknown> = {
+      endpoint: cleanedEndpoint,
+      method: requireNonBlank("method", method).toUpperCase(),
+    };
+    if (params !== undefined) payload.params = params;
+    if (headers !== undefined) payload.headers = headers;
+    if (body !== undefined) payload.body = body;
+    const resolvedDryRun = dryRun ?? dry_run;
+    if (resolvedDryRun !== undefined) payload.dry_run = resolvedDryRun;
+    return this.json<CredentialProxyResponse>(
+      { method: "POST", path: `/api/v1/oauth/proxy/${seg}`, body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `GET /api/v1/runs/{run_id}/decision-trail`: retrieve the execution decision graph and statistics for `runId`. */
+  getRunDecisionTrail(runId: string, options: RequestOptions = {}): Promise<WithRequestId<DecisionTrail>> {
+    const seg = pathSegment("runId", runId);
+    return this.json<DecisionTrail>(
+      { method: "GET", path: `/api/v1/runs/${seg}/decision-trail`, body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `POST /api/v1/runs/{run_id}/replay`: replay a run in `simulated`, `strict`, or `counterfactual` mode. */
+  replayRun(
+    runId: string,
+    modeOrOptions: ReplayMode | ReplayRunOptions = "simulated",
+    overrides?: Record<string, unknown> | null,
+    options: ReplayRunOptions = {},
+  ): Promise<WithRequestId<ReplayRunResult>> {
+    const seg = pathSegment("runId", runId);
+    const merged: ReplayRunOptions =
+      typeof modeOrOptions === "string"
+        ? { ...options, mode: modeOrOptions, ...(overrides != null ? { overrides } : {}) }
+        : { ...modeOrOptions, ...options };
+    const { mode = "simulated", overrides: ov, fromStepId, from_step_id, ...reqOptions } = merged;
+    const payload: Record<string, unknown> = {
+      mode: requireNonBlank("mode", mode),
+      overrides: ov ?? {},
+    };
+    const resolvedFromStep = fromStepId ?? from_step_id;
+    if (resolvedFromStep !== undefined) payload.from_step_id = resolvedFromStep;
+    return this.json<ReplayRunResult>(
+      { method: "POST", path: `/api/v1/runs/${seg}/replay`, body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `GET /api/v1/runs/{run_id}/checkpoints`: list persisted checkpoints for `runId`. */
+  listRunCheckpoints(runId: string, options: RequestOptions = {}): Promise<WithRequestId<CheckpointList>> {
+    const seg = pathSegment("runId", runId);
+    return this.json<CheckpointList>(
+      { method: "GET", path: `/api/v1/runs/${seg}/checkpoints`, body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `POST /api/v1/runs/{run_id}/resume`: resume a run from `checkpointId`. */
+  resumeRun(
+    runId: string,
+    checkpointId?: string | null,
+    options: ResumeRunOptions = {},
+  ): Promise<WithRequestId<ResumeRunResult>> {
+    const seg = pathSegment("runId", runId);
+    const { stateOverrides, state_overrides, ...reqOptions } = options;
+    const payload: Record<string, unknown> = {};
+    if (checkpointId !== undefined && checkpointId !== null) {
+      payload.checkpoint_id = requireNonBlank("checkpointId", checkpointId);
+    }
+    const resolvedOverrides = stateOverrides ?? state_overrides;
+    if (resolvedOverrides !== undefined) payload.state_overrides = resolvedOverrides;
+    return this.json<ResumeRunResult>(
+      { method: "POST", path: `/api/v1/runs/${seg}/resume`, body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `GET /api/v1/reliability/metrics`: retrieve aggregate reliability metrics. */
+  getReliabilityMetrics(
+    agentIdOrOptions?: string | GetReliabilityMetricsOptions | null,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<ReliabilityMetrics>> {
+    let agentId: string | undefined;
+    let reqOptions: RequestOptions = options;
+    if (typeof agentIdOrOptions === "string") {
+      agentId = agentIdOrOptions;
+    } else if (agentIdOrOptions && typeof agentIdOrOptions === "object") {
+      const { agentId: a1, agent_id: a2, ...rest } = agentIdOrOptions;
+      agentId = a1 ?? a2;
+      reqOptions = { ...rest, ...options };
+    }
+    const qs = buildQuery({ agent_id: agentId });
+    return this.json<ReliabilityMetrics>(
+      { method: "GET", path: `/api/v1/reliability/metrics${qs}`, body: undefined, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `GET /api/v1/reliability/slo`: retrieve the service-level objective compliance report. */
+  getReliabilitySlo(options: RequestOptions = {}): Promise<WithRequestId<ReliabilitySloReport>> {
+    return this.json<ReliabilitySloReport>(
+      { method: "GET", path: "/api/v1/reliability/slo", body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `GET /api/v1/reliability/trends`: retrieve historical reliability trend buckets and anomalies. */
+  getReliabilityTrends(options: RequestOptions = {}): Promise<WithRequestId<ReliabilityTrends>> {
+    return this.json<ReliabilityTrends>(
+      { method: "GET", path: "/api/v1/reliability/trends", body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `GET /api/v1/telemetry/status`: retrieve the status of the platform telemetry stack. */
+  getTelemetryStatus(options: RequestOptions = {}): Promise<WithRequestId<TelemetryStackStatus>> {
+    return this.json<TelemetryStackStatus>(
+      { method: "GET", path: "/api/v1/telemetry/status", body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `GET /api/v1/telemetry/executions/{execution_id}/metrics`: retrieve per-step telemetry metrics for `executionId`. */
+  getExecutionTelemetry(
+    executionId: string,
+    options: RequestOptions = {},
+  ): Promise<WithRequestId<TelemetryExecutionMetrics>> {
+    const seg = pathSegment("executionId", executionId);
+    return this.json<TelemetryExecutionMetrics>(
+      { method: "GET", path: `/api/v1/telemetry/executions/${seg}/metrics`, body: undefined, keyed: true, stream: false },
+      options,
+    );
+  }
+
+  /** `GET /api/v1/hitl/interactions`: list human-in-the-loop interaction requests. */
+  listHitlInteractions(options: ListHitlInteractionsOptions = {}): Promise<WithRequestId<HitlInteractionList>> {
+    const { status, ...reqOptions } = options;
+    const qs = buildQuery({ status });
+    return this.json<HitlInteractionList>(
+      { method: "GET", path: `/api/v1/hitl/interactions${qs}`, body: undefined, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `POST /api/v1/hitl/interactions/{interaction_id}/respond`: submit a decision for a HITL interaction. */
+  respondHitlInteraction(
+    interactionId: string,
+    decision: string,
+    options: RespondHitlInteractionOptions = {},
+  ): Promise<WithRequestId<HitlInteraction>> {
+    const seg = pathSegment("interactionId", interactionId);
+    const { responseData, response_data, respondedBy, responded_by, ...reqOptions } = options;
+    const payload: Record<string, unknown> = {
+      decision: requireNonBlank("decision", decision),
+    };
+    const resolvedData = responseData ?? response_data;
+    if (resolvedData !== undefined) payload.response_data = resolvedData;
+    const resolvedBy = respondedBy ?? responded_by;
+    if (resolvedBy !== undefined) payload.responded_by = resolvedBy;
+    return this.json<HitlInteraction>(
+      { method: "POST", path: `/api/v1/hitl/interactions/${seg}/respond`, body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `POST /api/v1/guardrails/evaluate`: evaluate content or tool calls against guardrails. */
+  evaluateGuardrails(
+    railType: GuardrailType,
+    content: string,
+    options: EvaluateGuardrailsOptions = {},
+  ): Promise<WithRequestId<GuardrailEvaluation>> {
+    const { toolName, tool_name, toolArgs, tool_args, policies, ...reqOptions } = options;
+    const payload: Record<string, unknown> = {
+      rail_type: requireNonBlank("railType", railType),
+      content,
+    };
+    const resolvedToolName = toolName ?? tool_name;
+    if (resolvedToolName !== undefined) payload.tool_name = resolvedToolName;
+    const resolvedToolArgs = toolArgs ?? tool_args;
+    if (resolvedToolArgs !== undefined) payload.tool_args = resolvedToolArgs;
+    if (policies !== undefined) payload.policies = policies;
+    return this.json<GuardrailEvaluation>(
+      { method: "POST", path: "/api/v1/guardrails/evaluate", body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `POST /api/v1/tools/plan`: generate a dependency-ordered tool execution plan for `goal`. */
+  planTools(
+    goal: string,
+    availableTools?: string[] | null,
+    options: PlanToolsOptions = {},
+  ): Promise<WithRequestId<ToolPlan>> {
+    const cleanedGoal = requireNonBlank("goal", goal);
+    const { constraints, ...reqOptions } = options;
+    const payload: Record<string, unknown> = {
+      task: cleanedGoal,
+      goal: cleanedGoal,
+    };
+    if (availableTools !== undefined && availableTools !== null) {
+      payload.available_tools = availableTools;
+    }
+    if (constraints !== undefined) payload.constraints = constraints;
+    return this.json<ToolPlan>(
+      { method: "POST", path: "/api/v1/tools/plan", body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
   /** @internal */
   async json<T extends object>(prepared: Prepared, options: RequestOptions): Promise<WithRequestId<T>> {
     const { response } = await this.send(prepared, options);
@@ -1278,6 +1606,25 @@ export class MatterWave {
 }
 
 export { MatterWave as MatterWaveClient };
+
+function pathSegment(name: string, value: string): string {
+  if (!value || value.includes("/") || value === "." || value === "..") {
+    throw new MatterWaveConfigError(`${name} must be a non-empty id without '/', got ${value}`);
+  }
+  return encodeURIComponent(value);
+}
+
+function requireNonBlank(name: string, value: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new MatterWaveConfigError(`${name} must not be blank`);
+  }
+  return value;
+}
+
+function buildQuery(params: Record<string, string | undefined>): string {
+  const pairs = Object.entries(params).filter((p): p is [string, string] => p[1] !== undefined);
+  return pairs.length === 0 ? "" : `?${new URLSearchParams(pairs).toString()}`;
+}
 
 /** The URL with the call's extra query parameters added after any it already has. */
 function withQuery(url: string, query: Record<string, string> | undefined): string {
