@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MatterWaveConfigError } from "../src/index.js";
+import { GRT_HF_MODELS, GRT_WHITEPAPER_SHA256, MatterWaveConfigError } from "../src/index.js";
 import { BASE_URL, REQUEST_ID, client, json, stubFetch } from "./helpers.js";
 
 function route(s: { method: string; url: string }): string {
@@ -495,5 +495,105 @@ describe("reliability, telemetry, HITL, guardrails, and tool planning", () => {
     expect(() => mw.proxyOAuthRequest("cred-1", "   ")).toThrow(MatterWaveConfigError);
     expect(() => mw.evaluateGuardrails("", "hello")).toThrow(MatterWaveConfigError);
     expect(() => mw.planTools("   ")).toThrow(MatterWaveConfigError);
+    expect(() => mw.rerank("   ", ["doc 1"])).toThrow(MatterWaveConfigError);
+    expect(() => mw.rerank("query", [])).toThrow(MatterWaveConfigError);
+    expect(() => mw.synthesizeSpeech("   ")).toThrow(MatterWaveConfigError);
+  });
+
+  it("exports the 9-model GRT_HF_MODELS catalog and calls rerank, synthesizeSpeech, and getGrtSuite", async () => {
+    expect(GRT_HF_MODELS).toHaveLength(9);
+    expect(GRT_HF_MODELS.map((m) => m.id)).toEqual([
+      "MatterWaveAI/grt-30m",
+      "MatterWaveAI/grt-30m-chat",
+      "MatterWaveAI/grt-30m-mor",
+      "MatterWaveAI/grt-30m-embedding",
+      "MatterWaveAI/grt-30m-reranker",
+      "MatterWaveAI/grt-30m-vl",
+      "MatterWaveAI/grt-30m-tts",
+      "MatterWaveAI/grt-30m-omni",
+      "MatterWaveAI/grt-30m-tokenizer",
+    ]);
+    for (const spec of GRT_HF_MODELS) {
+      expect(spec.vocab_size).toBe(151669);
+      expect(spec.whitepaper_sha256).toBe(GRT_WHITEPAPER_SHA256);
+    }
+
+    const { fetch, seen } = stubFetch([
+      json({
+        id: "rerank-01",
+        model: "MatterWaveAI/grt-30m-reranker",
+        results: [
+          {
+            index: 1,
+            relevance_score: 0.965,
+            document: { text: "Fermionic antisymmetric attention" },
+          },
+          {
+            index: 0,
+            relevance_score: 0.312,
+            document: { text: "General background note" },
+          },
+        ],
+        usage: { total_tokens: 24 },
+      }),
+      json({
+        id: "tts-01",
+        model: "MatterWaveAI/grt-30m-tts",
+        voice: "aurora",
+        format: "json",
+        sample_rate: 24000,
+        duration_ms: 520,
+        audio_base64: "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=",
+        phoneme_tokens: [12, 44, 108],
+      }),
+      json({
+        suite: "grt-30m",
+        organization: "MatterWaveAI",
+        whitepaper_sha256: GRT_WHITEPAPER_SHA256,
+        total: 9,
+        models: GRT_HF_MODELS,
+      }),
+    ]);
+
+    const mw = client(fetch);
+
+    const ranked = await mw.rerank(
+      "fermionic attention",
+      ["General background note", "Fermionic antisymmetric attention"],
+      { topN: 2 },
+    );
+    expect(ranked.model).toBe("MatterWaveAI/grt-30m-reranker");
+    expect(ranked.results).toHaveLength(2);
+    expect(ranked.results[0]?.index).toBe(1);
+    expect(ranked.requestId).toBe(REQUEST_ID);
+
+    const speech = await mw.synthesizeSpeech("Topological gauge invariance.");
+    expect(speech.model).toBe("MatterWaveAI/grt-30m-tts");
+    expect(speech.voice).toBe("aurora");
+    expect(speech.sample_rate).toBe(24000);
+
+    const suite = await mw.getGrtSuite();
+    expect(suite.total).toBe(9);
+    expect(suite.models).toHaveLength(9);
+
+    expect(seen.map(route)).toEqual([
+      "POST /v1/rerank",
+      "POST /v1/audio/speech",
+      "GET /api/v1/models/grt-suite",
+    ]);
+    expect(seen[0]!.body).toEqual({
+      model: "MatterWaveAI/grt-30m-reranker",
+      query: "fermionic attention",
+      documents: ["General background note", "Fermionic antisymmetric attention"],
+      return_documents: true,
+      top_n: 2,
+    });
+    expect(seen[1]!.body).toEqual({
+      model: "MatterWaveAI/grt-30m-tts",
+      input: "Topological gauge invariance.",
+      voice: "aurora",
+      response_format: "json",
+      speed: 1.0,
+    });
   });
 });

@@ -461,6 +461,7 @@ export type {
   Usage,
   WithRequestId,
 } from "./types.js";
+export { GRT_HF_MODELS, GRT_WHITEPAPER_SHA256 } from "./platform-types.js";
 export type {
   A2ALimits,
   A2APermissionEnvelope,
@@ -478,6 +479,8 @@ export type {
   EnforceOidcClaimsParams,
   EvaluateGuardrailsOptions,
   GetReliabilityMetricsOptions,
+  GrtHfModelSpec,
+  GrtSuiteManifest,
   GuardrailEvaluation,
   GuardrailType,
   GuardrailViolation,
@@ -499,10 +502,15 @@ export type {
   ReplayMode,
   ReplayRunOptions,
   ReplayRunResult,
+  RerankOptions,
+  RerankResponse,
+  RerankResult,
   RespondHitlInteractionOptions,
   ResumeRunOptions,
   ResumeRunResult,
+  SpeechSynthesisResponse,
   StepTelemetryMetrics,
+  SynthesizeSpeechOptions,
   TelemetryExecutionMetrics,
   TelemetryServiceEndpoint,
   TelemetryStackStatus,

@@ -74,6 +74,7 @@ import type {
   EnforceOidcClaimsParams,
   EvaluateGuardrailsOptions,
   GetReliabilityMetricsOptions,
+  GrtSuiteManifest,
   GuardrailEvaluation,
   GuardrailType,
   HitlInteraction,
@@ -92,9 +93,13 @@ import type {
   ReplayMode,
   ReplayRunOptions,
   ReplayRunResult,
+  RerankOptions,
+  RerankResponse,
   RespondHitlInteractionOptions,
   ResumeRunOptions,
   ResumeRunResult,
+  SpeechSynthesisResponse,
+  SynthesizeSpeechOptions,
   TelemetryExecutionMetrics,
   TelemetryStackStatus,
   ToolPlan,
@@ -1385,6 +1390,78 @@ export class MatterWave {
     return this.json<ToolPlan>(
       { method: "POST", path: "/api/v1/tools/plan", body: payload, keyed: true, stream: false },
       reqOptions,
+    );
+  }
+
+  /** `POST /v1/rerank`: score and order candidate `documents` against `query` using `MatterWaveAI/grt-30m-reranker`. */
+  rerank(
+    query: string,
+    documents: string[],
+    options: RerankOptions = {},
+  ): Promise<WithRequestId<RerankResponse>> {
+    const cleanedQuery = requireNonBlank("query", query);
+    if (!Array.isArray(documents) || documents.length === 0) {
+      throw new MatterWaveConfigError("documents must be a non-empty array");
+    }
+    const {
+      model = "MatterWaveAI/grt-30m-reranker",
+      topN,
+      top_n,
+      returnDocuments,
+      return_documents,
+      ...reqOptions
+    } = options;
+    const cleanedModel = requireNonBlank("model", model);
+    const resolvedTopN = topN ?? top_n;
+    const resolvedReturnDocs = returnDocuments ?? return_documents ?? true;
+    const payload: Record<string, unknown> = {
+      model: cleanedModel,
+      query: cleanedQuery,
+      documents,
+      return_documents: resolvedReturnDocs,
+    };
+    if (resolvedTopN !== undefined) payload.top_n = resolvedTopN;
+    return this.json<RerankResponse>(
+      { method: "POST", path: "/v1/rerank", body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `POST /v1/audio/speech`: synthesize speech audio from `input` text using `MatterWaveAI/grt-30m-tts`. */
+  synthesizeSpeech(
+    input: string,
+    options: SynthesizeSpeechOptions = {},
+  ): Promise<WithRequestId<SpeechSynthesisResponse>> {
+    const cleanedInput = requireNonBlank("input", input);
+    const {
+      model = "MatterWaveAI/grt-30m-tts",
+      voice = "aurora",
+      responseFormat,
+      response_format,
+      speed = 1.0,
+      ...reqOptions
+    } = options;
+    const cleanedModel = requireNonBlank("model", model);
+    const cleanedVoice = requireNonBlank("voice", voice);
+    const cleanedFormat = requireNonBlank("responseFormat", responseFormat ?? response_format ?? "json");
+    const payload: Record<string, unknown> = {
+      model: cleanedModel,
+      input: cleanedInput,
+      voice: cleanedVoice,
+      response_format: cleanedFormat,
+      speed,
+    };
+    return this.json<SpeechSynthesisResponse>(
+      { method: "POST", path: "/v1/audio/speech", body: payload, keyed: true, stream: false },
+      reqOptions,
+    );
+  }
+
+  /** `GET /api/v1/models/grt-suite`: retrieve the 9-model `MatterWaveAI/grt-30m*` HuggingFace suite manifest. */
+  getGrtSuite(options: RequestOptions = {}): Promise<WithRequestId<GrtSuiteManifest>> {
+    return this.json<GrtSuiteManifest>(
+      { method: "GET", path: "/api/v1/models/grt-suite", body: undefined, keyed: true, stream: false },
+      options,
     );
   }
 
